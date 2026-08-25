@@ -1,14 +1,45 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Prompt Injection Detector</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
-<body style="width:250px; font-family:Arial, sans-serif; padding:12px;">
+<body>
 
-    <h3>🛡️ Prompt Guard</h3>
+    <div class="container">
 
-    <p>Extension loaded successfully.</p>
+        <h2>🛡 Prompt Injection Detector</h2>
+
+        <div class="status safe">
+            Status:
+            <span id="statusText">SAFE</span>
+        </div>
+
+        <div class="score-section">
+
+            <p>Risk Score</p>
+
+            <h1 id="riskScore">0%</h1>
+
+            <div class="progress-bar">
+                <div class="progress" id="progressFill"></div>
+            </div>
+
+        </div>
+
+        <div class="last-scan">
+            <strong>Last Scan</strong>
+            <p id="scanResult">No prompt scanned yet.</p>
+        </div>
+
+        <button id="scanBtn">
+            Scan Current Prompt
+        </button>
+
+    </div>
+
+    <script src="popup.js"></script>
 
 </body>
 </html>
