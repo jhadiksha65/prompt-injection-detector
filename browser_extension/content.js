@@ -129,11 +129,53 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
                     <div style="font-size: 15px; color: #f8fafc; font-weight: 600;">${result.attack_type}</div>
                 </div>
 
-                <div style="margin-bottom: 20px;">
+                <div style="margin-bottom: 16px;">
                     <div style="font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Security Explanation</div>
                     <div style="font-size: 14px; color: #cbd5e1; line-height: 1.5; background: #0f172a; padding: 12px; border-radius: 8px; border-left: 4px solid ${badgeBorder};">
                         ${result.reason}
                     </div>
+                </div>
+
+                <!-- Alert Dispatch Notice -->
+                <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 18px;">📧</span>
+                    <div style="font-size: 12px; color: #93c5fd; line-height: 1.4;">
+                        <strong>Alert Dispatched:</strong> Security notification sent to registered account holder: <code>${result.alert_recipient_email || "account-holder@domain.com"}</code>
+                    </div>
+                </div>
+
+                <!-- Security Re-Authentication Section -->
+                <div style="background: #0f172a; border-radius: 8px; padding: 14px; margin-bottom: 18px; border: 1px solid #334155;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <span style="font-size: 16px;">🔒</span>
+                        <span style="font-size: 13px; font-weight: 700; color: #f1f5f9;">Session Suspended • Re-Authentication</span>
+                    </div>
+                    <p style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
+                        Critical prompt injection attempt detected. Enter authorized credentials to unlock session and override.
+                    </p>
+                    <div style="display: flex; gap: 8px;">
+                        <input id="pid-auth-pwd" type="password" placeholder="Enter password (admin123)" style="
+                            flex: 1;
+                            background: #1e293b;
+                            border: 1px solid #475569;
+                            padding: 8px 12px;
+                            border-radius: 6px;
+                            color: #fff;
+                            font-size: 13px;
+                            outline: none;
+                        " />
+                        <button id="pid-btn-reauth" style="
+                            background: #ef4444;
+                            color: #fff;
+                            border: none;
+                            padding: 8px 14px;
+                            border-radius: 6px;
+                            font-weight: 700;
+                            cursor: pointer;
+                            font-size: 12px;
+                        ">Unlock</button>
+                    </div>
+                    <div id="pid-auth-msg" style="font-size: 11px; margin-top: 6px; display: none;"></div>
                 </div>
 
                 <!-- Footer Actions -->
@@ -147,17 +189,7 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
                         font-weight: 600;
                         cursor: pointer;
                         transition: background 0.2s;
-                    ">Edit Prompt</button>
-                    ${!isBlock ? `
-                    <button id="pid-btn-override" style="
-                        background: ${headerColor};
-                        color: #0f172a;
-                        border: none;
-                        padding: 10px 18px;
-                        border-radius: 8px;
-                        font-weight: 700;
-                        cursor: pointer;
-                    ">Proceed Anyway</button>` : ''}
+                    ">Cancel & Edit Prompt</button>
                 </div>
             </div>
         </div>
@@ -170,12 +202,24 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
         if (onDismiss) onDismiss();
     });
 
-    const overrideBtn = document.getElementById("pid-btn-override");
-    if (overrideBtn) {
-        overrideBtn.addEventListener("click", () => {
-            isSubmissionApproved = true;
-            overlay.remove();
-            triggerOriginalSubmit();
+    const reauthBtn = document.getElementById("pid-btn-reauth");
+    if (reauthBtn) {
+        reauthBtn.addEventListener("click", () => {
+            const pwd = document.getElementById("pid-auth-pwd").value.trim();
+            const msg = document.getElementById("pid-auth-msg");
+
+            if (pwd === "admin123") {
+                msg.style.display = "block";
+                msg.style.color = "#10b981";
+                msg.textContent = "✅ Identity verified! Session unlocked.";
+                setTimeout(() => {
+                    overlay.remove();
+                }, 1000);
+            } else {
+                msg.style.display = "block";
+                msg.style.color = "#ef4444";
+                msg.textContent = "❌ Invalid credentials. Access remains locked.";
+            }
         });
     }
 }

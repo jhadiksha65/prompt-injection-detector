@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Dashboard • PromptSentinel</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="logo-shield">🛡️</span>
+                <div class="brand-text">
+                    <h2>PromptSentinel</h2>
+                    <span class="badge">Dual-Layer Security</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="/" class="nav-item">
+                    <span class="icon">💬</span>
+                    <span>AI Assistant</span>
+                </a>
+                <a href="/dashboard" class="nav-item active">
+                    <span class="icon">📊</span>
+                    <span>Security Dashboard</span>
+                </a>
+                <a href="/sensitive-resource" class="nav-item">
+                    <span class="icon">🔐</span>
+                    <span>Sensitive Resource</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <span class="dot online"></span>
+                    <span>Database Connected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard Content -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>Security & Incident Analytics Dashboard</h1>
+                    <p class="subtitle">Live Threat Monitoring, Dual-Layer Decision Logs & Attack Intelligence</p>
+                </div>
+                <div class="header-right">
+                    <button class="refresh-btn" onclick="fetchDashboardData()">🔄 Refresh Data</button>
+                </div>
+            </header>
+
+            <div class="dashboard-body">
+                <!-- KPI Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-title">Total Requests</div>
+                        <div class="stat-value" id="statTotal">0</div>
+                        <div class="stat-desc">Processed via Security Middleware</div>
+                    </div>
+                    <div class="stat-card blocked">
+                        <div class="stat-title">Blocked Threats</div>
+                        <div class="stat-value" id="statBlocked">0</div>
+                        <div class="stat-desc">Intercepted before LLM dispatch</div>
+                    </div>
+                    <div class="stat-card critical">
+                        <div class="stat-title">High / Critical Threats</div>
+                        <div class="stat-value" id="statHighCritical">0</div>
+                        <div class="stat-desc">Risk score $\ge 61/100$</div>
+                    </div>
+                    <div class="stat-card layer2">
+                        <div class="stat-title">Layer 2 Actions</div>
+                        <div class="stat-value" id="statLayer2">0</div>
+                        <div class="stat-desc">Responses Masked or Blocked</div>
+                    </div>
+                </div>
+
+                <!-- Incidents Log Table -->
+                <div class="table-card">
+                    <div class="table-header">
+                        <h3>Security Incident Logs</h3>
+                        <span class="table-subtitle">Chronological record of evaluated prompts and responses</span>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="incident-table">
+                            <thead>
+                                <tr>
+                                    <th>Request ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Prompt Snippet</th>
+                                    <th>L1 Risk</th>
+                                    <th>Attack Vector</th>
+                                    <th>L1 Decision</th>
+                                    <th>L2 Decision</th>
+                                    <th>Final Action</th>
+                                    <th>Alert</th>
+                                </tr>
+                            </thead>
+                            <tbody id="incidentsTableBody">
+                                <tr>
+                                    <td colspan="9" style="text-align: center; color: #94a3b8; padding: 24px;">Loading incidents from database...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

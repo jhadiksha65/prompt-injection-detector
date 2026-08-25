@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensitive Resource • PromptSentinel</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="logo-shield">🛡️</span>
+                <div class="brand-text">
+                    <h2>PromptSentinel</h2>
+                    <span class="badge">Dual-Layer Security</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="/" class="nav-item">
+                    <span class="icon">💬</span>
+                    <span>AI Assistant</span>
+                </a>
+                <a href="/dashboard" class="nav-item">
+                    <span class="icon">📊</span>
+                    <span>Security Dashboard</span>
+                </a>
+                <a href="/sensitive-resource" class="nav-item active">
+                    <span class="icon">🔐</span>
+                    <span>Sensitive Resource</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <span class="dot online"></span>
+                    <span>Protected Vault</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-left">
+                    <h1>Protected Enterprise Resource</h1>
+                    <p class="subtitle">Controlled Resource Demonstrating Threat-Triggered Lockout & Re-Authentication</p>
+                </div>
+                <div class="header-right">
+                    <span id="vaultStatusBadge" class="status-pill safe">UNLOCKED</span>
+                </div>
+            </header>
+
+            <div class="dashboard-body">
+                <!-- Locked Notice (Shown when locked) -->
+                <div id="lockedOverlay" class="alert-card critical" style="display: none;">
+                    <div class="alert-header">
+                        <span class="alert-icon">🔒</span>
+                        <div>
+                            <h3>ACCESS TEMPORARILY REVOKED (SECURITY LOCK)</h3>
+                            <p>A High/Critical Prompt Injection threat was detected from your session. In accordance with security protocol, sensitive enterprise resources have been locked.</p>
+                        </div>
+                    </div>
+                    <div class="unlock-form">
+                        <input type="password" id="reAuthPassword" placeholder="Enter password to re-authenticate (admin123)" />
+                        <button onclick="handleReAuth()" class="btn-unlock">Verify Identity & Unlock</button>
+                    </div>
+                </div>
+
+                <!-- Protected Data Table (Shown when unlocked) -->
+                <div id="protectedDataCard" class="table-card">
+                    <div class="table-header">
+                        <h3>Confidential Enterprise Assets</h3>
+                        <span class="table-subtitle">Restricted to verified authenticated sessions</span>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="incident-table">
+                            <thead>
+                                <tr>
+                                    <th>Asset ID</th>
+                                    <th>System Node</th>
+                                    <th>Classification</th>
+                                    <th>Data Payload</th>
+                                    <th>Security Policy</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><code>AST-9901</code></td>
+                                    <td>Core Payment Gateway</td>
+                                    <td><span class="tag high">Confidential</span></td>
+                                    <td>Encrypted Token Exchange Module</td>
+                                    <td>Zero-Trust Isolation</td>
+                                </tr>
+                                <tr>
+                                    <td><code>AST-9902</code></td>
+                                    <td>Customer Account Vault</td>
+                                    <td><span class="tag critical">Restricted</span></td>
+                                    <td>Key Management Infrastructure</td>
+                                    <td>Dual-Layer Verification</td>
+                                </tr>
+                                <tr>
+                                    <td><code>AST-9903</code></td>
+                                    <td>Identity Directory</td>
+                                    <td><span class="tag high">Confidential</span></td>
+                                    <td>SSO SAML / OAuth Service Provider</td>
+                                    <td>Multi-Factor Enforced</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        async function checkVaultStatus() {
+            try {
+                const res = await fetch('/api/user-status');
+                const data = await res.json();
+                const lockedOverlay = document.getElementById('lockedOverlay');
+                const protectedData = document.getElementById('protectedDataCard');
+                const badge = document.getElementById('vaultStatusBadge');
+
+                if (data.is_locked) {
+                    lockedOverlay.style.display = 'block';
+                    protectedData.style.display = 'none';
+                    badge.textContent = 'LOCKED';
+                    badge.className = 'status-pill critical';
+                } else {
+                    lockedOverlay.style.display = 'none';
+                    protectedData.style.display = 'block';
+                    badge.textContent = 'UNLOCKED';
+                    badge.className = 'status-pill safe';
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function handleReAuth() {
+            const pwd = document.getElementById('reAuthPassword').value;
+            if (!pwd) return alert('Please enter password');
+
+            const res = await fetch('/api/unlock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pwd })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('Identity verified! Access restored.');
+                document.getElementById('reAuthPassword').value = '';
+                checkVaultStatus();
+            } else {
+                alert('Authentication failed: ' + (data.error || 'Invalid password'));
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', checkVaultStatus);
+    </script>
+</body>
+</html>
