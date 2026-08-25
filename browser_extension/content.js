@@ -10,20 +10,39 @@ console.log("[Prompt Injection Detector] Content script initialized on:", window
 let isSubmissionApproved = false;
 
 /**
- * Extracts prompt text from various web LLM DOM structures.
+ * Extracts prompt text from various web LLM DOM structures (ChatGPT, Claude, Gemini).
  */
 function getPromptText() {
-    // 1. ContentEditable input (ChatGPT, Claude, Gemini)
-    const contentEditable = document.querySelector('div[contenteditable="true"], div#prompt-textarea, [data-placeholder]');
-    if (contentEditable) {
-        const text = contentEditable.innerText || contentEditable.textContent || "";
-        if (text.trim()) return text.trim();
+    // 1. Check focused element if active
+    const active = document.activeElement;
+    if (active) {
+        if (active.tagName === "TEXTAREA" || active.tagName === "INPUT") {
+            if (active.value && active.value.trim()) return active.value.trim();
+        }
+        if (active.isContentEditable || active.getAttribute("contenteditable") === "true") {
+            const activeText = active.innerText || active.textContent || "";
+            if (activeText.trim()) return activeText.trim();
+        }
     }
 
-    // 2. Textarea fallback
-    const textarea = document.querySelector("textarea");
-    if (textarea && textarea.value) {
-        return textarea.value.trim();
+    // 2. Specific ChatGPT prompt container (#prompt-textarea, ProseMirror)
+    const chatgptTextarea = document.getElementById("prompt-textarea");
+    if (chatgptTextarea) {
+        const text = chatgptTextarea.innerText || chatgptTextarea.textContent || (chatgptTextarea.value ? chatgptTextarea.value : "");
+        if (text && text.trim()) return text.trim();
+    }
+
+    // 3. Any ContentEditable / ProseMirror elements
+    const editables = document.querySelectorAll('#prompt-textarea, .ProseMirror, div[contenteditable="true"], p[contenteditable="true"], [contenteditable="true"], [role="textbox"], rich-textarea');
+    for (const el of editables) {
+        const text = el.innerText || el.textContent || "";
+        if (text && text.trim()) return text.trim();
+    }
+
+    // 4. Standard textarea fallback
+    const textareas = document.querySelectorAll("textarea");
+    for (const ta of textareas) {
+        if (ta.value && ta.value.trim()) return ta.value.trim();
     }
 
     return "";
