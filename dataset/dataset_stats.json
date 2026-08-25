@@ -1,0 +1,17 @@
+{
+  "total_samples": 2240,
+  "malicious_samples": 1120,
+  "benign_samples": 1120,
+  "hard_negatives": 400,
+  "class_balance_percent": {
+    "MALICIOUS": 50.0,
+    "BENIGN": 50.0
+  },
+  "attack_type_distribution": {
+    "Benign": 1120,
+    "Prompt / System Prompt Leakage": 324,
+    "Jailbreak Payload": 421,
+    "Direct Prompt Injection": 285,
+    "Goal Hijacking": 90
+  }
+}

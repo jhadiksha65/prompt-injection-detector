@@ -1,0 +1,56 @@
+{
+  "random_seed": 42,
+  "ratios": {
+    "train": 0.7,
+    "val": 0.15,
+    "test": 0.15
+  },
+  "train": {
+    "split_name": "train",
+    "total_samples": 1569,
+    "malicious_samples": 785,
+    "benign_samples": 784,
+    "hard_negatives": 280,
+    "malicious_pct": 50.03,
+    "benign_pct": 49.97,
+    "attack_type_distribution": {
+      "Jailbreak Payload": 295,
+      "Prompt / System Prompt Leakage": 227,
+      "Benign": 784,
+      "Goal Hijacking": 63,
+      "Direct Prompt Injection": 200
+    }
+  },
+  "validation": {
+    "split_name": "validation",
+    "total_samples": 337,
+    "malicious_samples": 169,
+    "benign_samples": 168,
+    "hard_negatives": 60,
+    "malicious_pct": 50.15,
+    "benign_pct": 49.85,
+    "attack_type_distribution": {
+      "Benign": 168,
+      "Jailbreak Payload": 63,
+      "Prompt / System Prompt Leakage": 49,
+      "Goal Hijacking": 14,
+      "Direct Prompt Injection": 43
+    }
+  },
+  "test": {
+    "split_name": "test",
+    "total_samples": 334,
+    "malicious_samples": 166,
+    "benign_samples": 168,
+    "hard_negatives": 60,
+    "malicious_pct": 49.7,
+    "benign_pct": 50.3,
+    "attack_type_distribution": {
+      "Jailbreak Payload": 63,
+      "Benign": 168,
+      "Goal Hijacking": 13,
+      "Prompt / System Prompt Leakage": 48,
+      "Direct Prompt Injection": 42
+    }
+  }
+}

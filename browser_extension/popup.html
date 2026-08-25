@@ -6,40 +6,73 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-
-    <div class="container">
-
-        <h2>🛡 Prompt Injection Detector</h2>
-
-        <div class="status safe">
-            Status:
-            <span id="statusText">SAFE</span>
-        </div>
-
-        <div class="score-section">
-
-            <p>Risk Score</p>
-
-            <h1 id="riskScore">0%</h1>
-
-            <div class="progress-bar">
-                <div class="progress" id="progressFill"></div>
+    <div class="app-card">
+        <!-- Header -->
+        <div class="header">
+            <div class="brand">
+                <span class="shield-icon">🛡️</span>
+                <div>
+                    <h1 class="title">Prompt Sentinel</h1>
+                    <span class="subtitle">LLM Security Middleware</span>
+                </div>
             </div>
-
+            <div id="statusBadge" class="status-badge safe">SAFE</div>
         </div>
 
-        <div class="last-scan">
-            <strong>Last Scan</strong>
-            <p id="scanResult">No prompt scanned yet.</p>
+        <!-- Risk Score Card -->
+        <div class="score-card">
+            <div class="score-header">
+                <span class="metric-label">Threat Risk Index</span>
+                <span id="riskScoreVal" class="score-number">0%</span>
+            </div>
+            <div class="progress-track">
+                <div id="progressBar" class="progress-fill safe" style="width: 4%;"></div>
+            </div>
+            <div class="score-scale">
+                <span>0 (Safe)</span>
+                <span>50 (Warning)</span>
+                <span>100 (Critical)</span>
+            </div>
         </div>
 
-        <button id="scanBtn">
-            Scan Current Prompt
-        </button>
+        <!-- Threat Metadata Card -->
+        <div class="details-card">
+            <div class="meta-row">
+                <span class="meta-label">Attack Type:</span>
+                <span id="attackType" class="meta-val">None (Benign)</span>
+            </div>
+            <div class="meta-row">
+                <span class="meta-label">Security Decision:</span>
+                <span id="decisionVal" class="meta-val highlight">ALLOW</span>
+            </div>
+            <div class="reason-box">
+                <span class="reason-label">Analysis Summary:</span>
+                <p id="reasonText" class="reason-text">No active prompt injection patterns detected.</p>
+            </div>
+        </div>
 
+        <!-- Last Scanned Snippet -->
+        <div class="snippet-card">
+            <div class="snippet-header">
+                <span>Captured Input</span>
+                <span id="scanTimestamp" class="timestamp">Ready</span>
+            </div>
+            <p id="scannedPromptText" class="snippet-text">No prompt scanned yet. Click 'Scan Current Prompt' while on ChatGPT.</p>
+        </div>
+
+        <!-- Actions -->
+        <div class="actions">
+            <button id="scanBtn" class="btn-primary">
+                <span>🔍</span> Scan Current Prompt
+            </button>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <span id="backendStatus" class="backend-status online">● Backend Connected (Port 5000)</span>
+        </div>
     </div>
 
     <script src="popup.js"></script>
-
 </body>
 </html>

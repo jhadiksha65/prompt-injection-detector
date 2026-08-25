@@ -1,5 +1,276 @@
-body {
-    font-family: Arial, sans-serif;
+* {
+    box-sizing: border-box;
     margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+    width: 360px;
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 14px;
+}
+
+.app-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #1e293b;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.shield-icon {
+    font-size: 24px;
+}
+
+.title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #f1f5f9;
+    letter-spacing: -0.2px;
+}
+
+.subtitle {
+    font-size: 10px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+}
+
+.status-badge {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 12px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.status-badge.safe {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid #10b981;
+}
+
+.status-badge.warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border: 1px solid #f59e0b;
+}
+
+.status-badge.blocked {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid #ef4444;
+}
+
+/* Risk Score Card */
+.score-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
     padding: 12px;
+}
+
+.score-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.metric-label {
+    font-size: 11px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.score-number {
+    font-size: 20px;
+    font-weight: 800;
+    color: #10b981;
+}
+
+.progress-track {
+    width: 100%;
+    height: 8px;
+    background: #0f172a;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.progress-fill.safe {
+    background: #10b981;
+}
+
+.progress-fill.warning {
+    background: #f59e0b;
+}
+
+.progress-fill.blocked {
+    background: #ef4444;
+}
+
+.score-scale {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-size: 9px;
+    color: #64748b;
+}
+
+/* Details Card */
+.details-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.meta-label {
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.meta-val {
+    color: #f1f5f9;
+    font-weight: 600;
+}
+
+.meta-val.highlight {
+    color: #38bdf8;
+}
+
+.reason-box {
+    background: #0f172a;
+    border-radius: 6px;
+    padding: 8px;
+    border-left: 3px solid #3b82f6;
+    margin-top: 4px;
+}
+
+.reason-label {
+    font-size: 10px;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.reason-text {
+    font-size: 11px;
+    color: #cbd5e1;
+    line-height: 1.4;
+}
+
+/* Snippet Card */
+.snippet-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
+.snippet-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.timestamp {
+    color: #64748b;
+    font-weight: 400;
+}
+
+.snippet-text {
+    font-size: 11px;
+    color: #94a3b8;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Button */
+.actions {
+    margin-top: 4px;
+}
+
+.btn-primary {
+    width: 100%;
+    background: #2563eb;
+    color: #ffffff;
+    border: none;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.2s ease;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+}
+
+.btn-primary:active {
+    transform: scale(0.98);
+}
+
+/* Footer */
+.footer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding-top: 4px;
+}
+
+.backend-status {
+    font-size: 10px;
+    color: #10b981;
+    font-weight: 600;
+}
+
+.backend-status.offline {
+    color: #ef4444;
 }
