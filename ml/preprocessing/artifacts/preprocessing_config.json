@@ -1,0 +1,46 @@
+{
+  "pad_token": "<PAD>",
+  "unk_token": "<UNK>",
+  "pad_id": 0,
+  "unk_id": 1,
+  "min_frequency": 1,
+  "max_vocab_size": null,
+  "max_sequence_length": 128,
+  "statistics": {
+    "train": {
+      "samples": 10291,
+      "minimum_tokens": 1,
+      "maximum_tokens": 3923,
+      "mean_tokens": 41.82781070838597,
+      "median_tokens": 19.0,
+      "p90_tokens": 79.0,
+      "p95_tokens": 114.0,
+      "p99_tokens": 450.10000000000036
+    },
+    "validation": {
+      "samples": 2205,
+      "minimum_tokens": 1,
+      "maximum_tokens": 3858,
+      "mean_tokens": 41.61451247165533,
+      "median_tokens": 20.0,
+      "p90_tokens": 73.60000000000014,
+      "p95_tokens": 108.0,
+      "p99_tokens": 442.96000000000004
+    },
+    "test": {
+      "samples": 2206,
+      "minimum_tokens": 1,
+      "maximum_tokens": 3989,
+      "mean_tokens": 48.859927470534906,
+      "median_tokens": 20.0,
+      "p90_tokens": 83.0,
+      "p95_tokens": 118.0,
+      "p99_tokens": 458.0
+    }
+  },
+  "leakage_check": {
+    "train_validation_overlap": 0,
+    "train_test_overlap": 0,
+    "validation_test_overlap": 0
+  }
+}
