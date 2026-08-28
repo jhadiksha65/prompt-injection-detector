@@ -15,3 +15,5 @@ Thumbs.db
 
 # Generated ML preprocessing outputs
 ml/processed/
+# Python virtual environment
+.venv/

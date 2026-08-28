@@ -1,5 +1,5 @@
 """
-Person 3 - Dataset Preprocessing Pipeline
+Dataset Preprocessing Pipeline
 
 Input:
     data/final/train.csv
@@ -608,7 +608,7 @@ def save_artifacts(
 def main():
 
     print("\n" + "=" * 70)
-    print("PROMPT INJECTION DETECTOR - PERSON 3 PREPROCESSING PIPELINE")
+    print("PROMPT INJECTION DETECTOR - DATA PREPROCESSING PIPELINE")
     print("=" * 70)
 
     # --------------------------------------------------------
@@ -740,7 +740,7 @@ def main():
     # --------------------------------------------------------
 
     print("\n" + "=" * 70)
-    print("PERSON 3 PIPELINE COMPLETED SUCCESSFULLY")
+    print("PROMPT INJECTION DETECTOR - PREPROCESSING COMPLETED SUCCESSFULLY")
     print("=" * 70)
 
     print("\nInput datasets:")

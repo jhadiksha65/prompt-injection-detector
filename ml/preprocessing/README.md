@@ -1,4 +1,4 @@
-# Person 3 - Dataset Preprocessing Pipeline
+# Dataset Preprocessing Pipeline
 
 ## 1. Purpose
 
