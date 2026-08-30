@@ -8,34 +8,34 @@
   "max_sequence_length": 128,
   "statistics": {
     "train": {
-      "samples": 10291,
-      "minimum_tokens": 1,
-      "maximum_tokens": 3923,
-      "mean_tokens": 41.82781070838597,
-      "median_tokens": 19.0,
-      "p90_tokens": 79.0,
-      "p95_tokens": 114.0,
-      "p99_tokens": 450.10000000000036
-    },
-    "validation": {
-      "samples": 2205,
-      "minimum_tokens": 1,
-      "maximum_tokens": 3858,
-      "mean_tokens": 41.61451247165533,
-      "median_tokens": 20.0,
-      "p90_tokens": 73.60000000000014,
-      "p95_tokens": 108.0,
-      "p99_tokens": 442.96000000000004
-    },
-    "test": {
-      "samples": 2206,
+      "samples": 14317,
       "minimum_tokens": 1,
       "maximum_tokens": 3989,
-      "mean_tokens": 48.859927470534906,
-      "median_tokens": 20.0,
-      "p90_tokens": 83.0,
-      "p95_tokens": 118.0,
-      "p99_tokens": 458.0
+      "mean_tokens": 42.475378920164836,
+      "median_tokens": 23.0,
+      "p90_tokens": 65.0,
+      "p95_tokens": 102.0,
+      "p99_tokens": 440.3600000000006
+    },
+    "validation": {
+      "samples": 3068,
+      "minimum_tokens": 1,
+      "maximum_tokens": 3858,
+      "mean_tokens": 42.39308996088657,
+      "median_tokens": 23.0,
+      "p90_tokens": 68.0,
+      "p95_tokens": 107.0,
+      "p99_tokens": 448.3299999999999
+    },
+    "test": {
+      "samples": 3069,
+      "minimum_tokens": 1,
+      "maximum_tokens": 3809,
+      "mean_tokens": 40.1029651352232,
+      "median_tokens": 23.0,
+      "p90_tokens": 67.0,
+      "p95_tokens": 106.0,
+      "p99_tokens": 330.9600000000005
     }
   },
   "leakage_check": {
