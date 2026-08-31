@@ -46,6 +46,17 @@ def init_db():
     )
     """)
 
+    # Try to add email_status and sms_status columns if they don't exist
+    try:
+        cursor.execute("ALTER TABLE incidents ADD COLUMN email_status TEXT DEFAULT 'NOT_CONFIGURED'")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE incidents ADD COLUMN sms_status TEXT DEFAULT 'NOT_CONFIGURED'")
+    except sqlite3.OperationalError:
+        pass
+
     # 2. Users Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
@@ -82,10 +93,13 @@ def log_incident(
     final_decision: str,
     reason: str,
     alert_status: str = "SKIPPED",
-    client_ip: str = "127.0.0.1"
+    client_ip: str = "127.0.0.1",
+    email_status: str = "NOT_CONFIGURED",
+    sms_status: str = "NOT_CONFIGURED",
+    request_id: str = None
 ) -> str:
     """Logs a security event to the SQLite database."""
-    req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
+    req_id = request_id if request_id else f"REQ-{uuid.uuid4().hex[:8].upper()}"
     timestamp = datetime.utcnow().isoformat()
     # Mask prompt to avoid storing raw sensitive credentials
     snippet = prompt[:120] + "..." if len(prompt) > 120 else prompt
@@ -96,12 +110,12 @@ def log_incident(
     INSERT INTO incidents (
         request_id, timestamp, prompt_snippet, risk_score, risk_level,
         attack_type, layer1_decision, layer2_decision, final_decision,
-        reason, alert_status, client_ip
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        reason, alert_status, client_ip, email_status, sms_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         req_id, timestamp, snippet, risk_score, risk_level,
         attack_type, layer1_decision, layer2_decision, final_decision,
-        reason, alert_status, client_ip
+        reason, alert_status, client_ip, email_status, sms_status
     ))
     conn.commit()
     conn.close()
@@ -112,7 +126,7 @@ def get_all_incidents(limit: int = 50) -> List[Dict[str, Any]]:
     """Retrieves recent incidents."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM incidents ORDER BY id DESC LIMIT ?", (limit,))
+    cursor.execute("SELECT * FROM incidents ORDER BY id DESC LIMIT ?")
     rows = cursor.fetchall()
     incidents = [dict(row) for row in rows]
     conn.close()

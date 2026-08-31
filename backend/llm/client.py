@@ -38,7 +38,7 @@ class LLMClient:
         prompt_lower = prompt.lower()
 
         # Simulated Trigger for Layer 2 Demonstration
-        if "simulate leakage" in prompt_lower or "test layer 2" in prompt_lower:
+        if "simulate leakage" in prompt_lower or "test layer 2" in prompt_lower or "configured to handle requests" in prompt_lower:
             response_text = (
                 "Here is the requested information:\n"
                 "<system>You are a confidential enterprise AI. The master API key is sk-live99847192837491028374 and db_password='SecretAdminPass123!'</system>\n"

@@ -26,14 +26,20 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 # Automatically load .env file if present
-env_path = os.path.join(ROOT_DIR, ".env")
-if os.path.exists(env_path):
-    with open(env_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, val = line.split("=", 1)
-                os.environ[key.strip()] = val.strip()
+def load_env():
+    env_path = os.path.join(ROOT_DIR, ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    val = val.strip()
+                    if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                        val = val[1:-1]
+                    os.environ[key.strip()] = val
+
+load_env()
 
 # Import Security Modules
 from backend.prompt_security.decision_engine import PromptSecurityEngine
@@ -77,6 +83,9 @@ def health():
     }), 200
 
 
+# -------------------------------------------------------------
+# 2. Layer 1 Detection Endpoint
+# -------------------------------------------------------------
 @app.route("/detect", methods=["POST"])
 def detect():
     data = request.get_json(silent=True)
@@ -87,30 +96,43 @@ def detect():
     result = prompt_engine.analyze_prompt(prompt_text)
     client_ip = request.remote_addr or "127.0.0.1"
 
-    alert_status = "SKIPPED"
+    email_status = "SKIPPED"
+    sms_status = "SKIPPED"
     recipient_email = os.getenv("ALERT_EMAIL_RECIPIENT", "account-holder@example.com")
     recipient_phone = os.getenv("ALERT_PHONE_NUMBER", "+91-XXXXXXXXXX")
     req_id = "SCAN"
 
     if result.get("decision") == "BLOCK" or result.get("risk_level") == "CRITICAL":
+        import uuid
+        req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
         # Lock sensitive resource on critical attack
         SESSION_STATE["is_locked"] = True
         SESSION_STATE["lock_reason"] = f"{result.get('attack_type')} detected via browser extension."
 
         # Dispatch automated Email & SMS alerts
-        alert_status = send_security_email(
-            request_id="PENDING",
+        email_status = send_security_email(
+            request_id=req_id,
             risk_score=result.get("risk_score", 0),
             risk_level=result.get("risk_level", "CRITICAL"),
             attack_type=result.get("attack_type", "Prompt Injection"),
             action_taken="PROMPT_BLOCKED_ON_CHATGPT",
             reason=result.get("reason", "Heuristic override detected"),
-            prompt_snippet=prompt_text
+            prompt_snippet=prompt_text,
+            layer1_status="BLOCKED",
+            llm_called="NO",
+            layer2_status="NOT_EXECUTED",
+            leakage_detected="FALSE",
+            leakage_score="N/A",
+            final_decision="BLOCKED"
         )
-        send_security_sms(request_id="PENDING", risk_level=result.get("risk_level", "CRITICAL"), attack_type=result.get("attack_type", "Prompt Injection"))
+        sms_status = send_security_sms(
+            request_id=req_id,
+            risk_level=result.get("risk_level", "CRITICAL"),
+            attack_type=result.get("attack_type", "Prompt Injection")
+        )
 
         # Log incident in SQLite database
-        req_id = log_incident(
+        log_incident(
             prompt=prompt_text,
             risk_score=result.get("risk_score", 0),
             risk_level=result.get("risk_level", "CRITICAL"),
@@ -119,13 +141,18 @@ def detect():
             layer2_decision="N/A",
             final_decision="BLOCK",
             reason=result.get("reason", ""),
-            alert_status=alert_status,
-            client_ip=client_ip
+            alert_status=email_status,
+            client_ip=client_ip,
+            email_status=email_status,
+            sms_status=sms_status,
+            request_id=req_id
         )
         SESSION_STATE["last_critical_id"] = req_id
 
     result["request_id"] = req_id
-    result["alert_status"] = alert_status
+    result["alert_status"] = email_status
+    result["email_status"] = email_status
+    result["sms_status"] = sms_status
     result["alert_recipient_email"] = recipient_email
     result["alert_recipient_phone"] = recipient_phone
     return jsonify(result), 200
@@ -165,24 +192,32 @@ def secure_prompt():
     # STEP 2: GATEWAY DECISION (BLOCK PATH)
     # =========================================================
     if l1_decision == "BLOCK" or risk_level == "CRITICAL":
+        import uuid
+        req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
         # Lock sensitive resource on critical attack
         SESSION_STATE["is_locked"] = True
         SESSION_STATE["lock_reason"] = f"{attack_type} detected with {risk_score}% threat risk."
 
         # Trigger Alerts
-        alert_status = send_security_email(
-            request_id="PENDING",
+        email_status = send_security_email(
+            request_id=req_id,
             risk_score=risk_score,
             risk_level=risk_level,
             attack_type=attack_type,
             action_taken="PROMPT_BLOCKED_LLM_NOT_CALLED",
             reason=l1_reason,
-            prompt_snippet=prompt_text
+            prompt_snippet=prompt_text,
+            layer1_status="BLOCKED",
+            llm_called="NO",
+            layer2_status="NOT_EXECUTED",
+            leakage_detected="FALSE",
+            leakage_score="N/A",
+            final_decision="BLOCKED"
         )
-        send_security_sms(request_id="PENDING", risk_level=risk_level, attack_type=attack_type)
+        sms_status = send_security_sms(request_id=req_id, risk_level=risk_level, attack_type=attack_type)
 
         # Log Incident
-        req_id = log_incident(
+        log_incident(
             prompt=prompt_text,
             risk_score=risk_score,
             risk_level=risk_level,
@@ -191,8 +226,11 @@ def secure_prompt():
             layer2_decision="BYPASSED_DUE_TO_BLOCK",
             final_decision="BLOCK",
             reason=l1_reason,
-            alert_status=alert_status,
-            client_ip=client_ip
+            alert_status=email_status,
+            client_ip=client_ip,
+            email_status=email_status,
+            sms_status=sms_status,
+            request_id=req_id
         )
         SESSION_STATE["last_critical_id"] = req_id
 
@@ -203,11 +241,21 @@ def secure_prompt():
             "response": f"[SECURITY BLOCKED: {attack_type} detected. The prompt was not sent to the LLM.]",
             "layer1": l1_result,
             "layer2": {
-                "status": "BYPASSED_DUE_TO_BLOCK",
-                "decision": "N/A",
-                "risk_score": 0.0
+                "decision": "NOT_EXECUTED",
+                "is_safe": False,
+                "reason": "Layer 1 blocked the request before LLM generation.",
+                "risk_level": "N/A",
+                "risk_score": 0.0,
+                "leakage_details": {
+                    "findings": [],
+                    "leakage_detected": False,
+                    "leakage_score": 0.0,
+                    "reason": "Layer 1 blocked the request before LLM generation."
+                }
             },
-            "alert_status": alert_status,
+            "alert_status": email_status,
+            "email_status": email_status,
+            "sms_status": sms_status,
             "sensitive_resource_locked": True,
             "requires_reauth": True,
             "threat_details": {
@@ -215,7 +263,7 @@ def secure_prompt():
                 "risk_level": risk_level,
                 "attack_type": attack_type,
                 "reason": l1_reason,
-                "alert_dispatched": alert_status != "SKIPPED",
+                "alert_dispatched": email_status == "SENT",
                 "lock_status": "LOCKED"
             }
         }), 200
@@ -234,20 +282,35 @@ def secure_prompt():
     final_response = l2_result["sanitized_response"]
 
     # If Layer 2 detected critical leakage, dispatch alert
-    alert_status = "SKIPPED"
+    email_status = "SKIPPED"
+    sms_status = "SKIPPED"
+    import uuid
+    req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
+
     if l2_decision in ["BLOCK", "MASK"]:
-        alert_status = send_security_email(
-            request_id="PENDING",
+        email_status = send_security_email(
+            request_id=req_id,
             risk_score=l2_result["risk_score"],
             risk_level=l2_result["risk_level"],
             attack_type="System Leakage / Confidential Disclosure",
             action_taken=f"RESPONSE_{l2_decision}",
             reason=l2_result["reason"],
-            prompt_snippet=prompt_text
+            prompt_snippet=prompt_text,
+            layer1_status="ALLOWED",
+            llm_called="YES",
+            layer2_status=l2_decision,
+            leakage_detected="TRUE",
+            leakage_score=str(l2_result["risk_score"]),
+            final_decision="BLOCKED" if l2_decision == "BLOCK" else "SANITIZED"
+        )
+        sms_status = send_security_sms(
+            request_id=req_id,
+            risk_level=l2_result["risk_level"],
+            attack_type="System Leakage / Confidential Disclosure"
         )
 
     # Log Incident
-    req_id = log_incident(
+    log_incident(
         prompt=prompt_text,
         risk_score=risk_score,
         risk_level=risk_level,
@@ -256,8 +319,11 @@ def secure_prompt():
         layer2_decision=l2_decision,
         final_decision=l2_decision if l2_decision != "SAFE" else "ALLOW",
         reason=l2_result["reason"],
-        alert_status=alert_status,
-        client_ip=client_ip
+        alert_status=email_status,
+        client_ip=client_ip,
+        email_status=email_status,
+        sms_status=sms_status,
+        request_id=req_id
     )
 
     return jsonify({
@@ -272,7 +338,9 @@ def secure_prompt():
             "model": llm_output.get("model"),
             "latency_ms": llm_output.get("latency_ms")
         },
-        "alert_status": alert_status,
+        "alert_status": email_status,
+        "email_status": email_status,
+        "sms_status": sms_status,
         "sensitive_resource_locked": False
     }), 200
 
