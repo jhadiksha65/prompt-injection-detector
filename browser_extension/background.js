@@ -131,6 +131,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         return true;
     }
+
+    // 4. Send an unlock/reauth request to the Flask server
+    if (message.type === "UNLOCK_SESSION") {
+        const password = message.password || "";
+        fetch(`${API_BASE_URL}/api/unlock`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ username: "admin", password: password })
+        })
+        .then((response) => response.json())
+        .then((data) => {
+            sendResponse({ success: data.success, data: data });
+        })
+        .catch((error) => {
+            console.error("[PromptSecurity] Unlock request failed:", error);
+            sendResponse({ success: false, error: "Flask backend unreachable." });
+        });
+        return true;
+    }
 });
 
 console.log("[Prompt Injection Detector] Background service worker initialized.");

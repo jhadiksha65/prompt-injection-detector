@@ -207,19 +207,27 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
         reauthBtn.addEventListener("click", () => {
             const pwd = document.getElementById("pid-auth-pwd").value.trim();
             const msg = document.getElementById("pid-auth-msg");
+            
+            msg.style.display = "block";
+            msg.style.color = "#cbd5e1";
+            msg.textContent = "⏳ Verifying with security backend...";
 
-            if (pwd === "admin123") {
-                msg.style.display = "block";
-                msg.style.color = "#10b981";
-                msg.textContent = "✅ Identity verified! Session unlocked.";
-                setTimeout(() => {
-                    overlay.remove();
-                }, 1000);
-            } else {
-                msg.style.display = "block";
-                msg.style.color = "#ef4444";
-                msg.textContent = "❌ Invalid credentials. Access remains locked.";
-            }
+            chrome.runtime.sendMessage({
+                type: "UNLOCK_SESSION",
+                password: pwd
+            }, (response) => {
+                if (response && response.success) {
+                    msg.style.color = "#10b981";
+                    msg.textContent = "✅ Identity verified! Session unlocked.";
+                    setTimeout(() => {
+                        overlay.remove();
+                    }, 1000);
+                } else {
+                    msg.style.color = "#ef4444";
+                    const errMsg = response?.error || "Invalid credentials. Access remains locked.";
+                    msg.textContent = `❌ ${errMsg}`;
+                }
+            });
         });
     }
 }

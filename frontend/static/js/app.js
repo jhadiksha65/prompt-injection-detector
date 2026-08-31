@@ -31,10 +31,13 @@ async function handleSend(e) {
     const l1Score = document.getElementById("l1Score");
     const l1Attack = document.getElementById("l1Attack");
     const l2Decision = document.getElementById("l2Decision");
+    const llmCalled = document.getElementById("llmCalled");
     const bannerReason = document.getElementById("bannerReason");
 
+    const API_BASE_URL = window.location.origin;
+
     try {
-        const response = await fetch("/secure-prompt", {
+        const response = await fetch(`${API_BASE_URL}/secure-prompt`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -52,25 +55,69 @@ async function handleSend(e) {
         l1Decision.textContent = l1.decision || "ALLOW";
         l1Score.textContent = `${l1.risk_score || 0}%`;
         l1Attack.textContent = l1.attack_type || "None";
-        l2Decision.textContent = l2.decision || (data.llm_called ? "SAFE" : "N/A (Blocked)");
-        bannerReason.textContent = `L1 Reason: ${l1.reason || "Safe"} | L2: ${l2.reason || "Validated"}`;
+        llmCalled.textContent = data.llm_called ? "YES" : "NO";
+        l2Decision.textContent = l2.decision || "SAFE";
+
+        // Format Banner Reason
+        if (data.final_decision === "BLOCK") {
+            if (l1.decision === "BLOCK" || l1.risk_level === "CRITICAL") {
+                bannerReason.textContent = "Reason: Blocked by Layer 1 before LLM generation";
+            } else {
+                bannerReason.textContent = `Reason: Sensitive information detected in generated response (${l2.reason || "Confidential leakage"})`;
+            }
+        } else if (data.final_decision === "MASK") {
+            bannerReason.textContent = "Reason: Response sanitized - sensitive credentials masked by Layer 2";
+        } else {
+            bannerReason.textContent = "Reason: Response validated and verified safe.";
+        }
 
         if (data.final_decision === "BLOCK") {
-            bannerRiskBadge.textContent = "CRITICAL / BLOCKED";
-            bannerRiskBadge.className = "risk-badge critical";
-            appendMessage("assistant blocked", "🛡️", data.response || "Request blocked by security layer.");
+            // Check if Layer 1 or Layer 2 caused the block
+            if (l1.decision === "BLOCK" || l1.risk_level === "CRITICAL") {
+                bannerRiskBadge.textContent = "CRITICAL / BLOCKED";
+                bannerRiskBadge.className = "risk-badge critical";
+                
+                const warningHtml = `
+                    <div class="security-warning-card" style="border: 2px solid #ef4444; background: rgba(239, 68, 68, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0; font-family: sans-serif;">
+                        <h4 style="color: #ef4444; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">⚠️ SECURITY WARNING</h4>
+                        <p style="margin: 4px 0; font-size: 14px;"><strong>Prompt blocked</strong></p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>Risk Level:</strong> ${l1.risk_level || "CRITICAL"}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>Risk Score:</strong> ${l1.risk_score || 0}%</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>Attack Type:</strong> ${l1.attack_type || "Prompt Injection"}</p>
+                        <p style="margin: 6px 0; padding: 6px; font-size: 13px; background: rgba(0,0,0,0.2); border-left: 3px solid #ef4444; color: #f8fafc;"><strong>Reason:</strong> ${l1.reason || "Potential instruction override detected."}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>Email:</strong> ${data.email_status || 'NOT_CONFIGURED'}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>SMS:</strong> ${data.sms_status || 'NOT_CONFIGURED'}</p>
+                    </div>
+                `;
+                appendMessageHtml("assistant blocked", "🛡️", warningHtml);
 
-            // Trigger Alert & Credential Re-Authentication Modal
-            if (data.requires_reauth) {
-                openReauthModal(data);
+                if (data.requires_reauth) {
+                    openReauthModal(data);
+                }
+            } else {
+                // Layer 2 Block
+                bannerRiskBadge.textContent = "CRITICAL / BLOCKED";
+                bannerRiskBadge.className = "risk-badge critical";
+                
+                const warningHtml = `
+                    <div class="security-warning-card layer2-block" style="border: 2px solid #ef4444; background: rgba(239, 68, 68, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0; font-family: sans-serif;">
+                        <h4 style="color: #ef4444; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">⚠️ RESPONSE BLOCKED</h4>
+                        <p style="margin: 4px 0; font-size: 14px;">The AI-generated response failed security validation.</p>
+                        <p style="margin: 4px 0; font-size: 13px; color: #ef4444;">Do not display unsafe response content.</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>Email:</strong> ${data.email_status || 'NOT_CONFIGURED'}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>SMS:</strong> ${data.sms_status || 'NOT_CONFIGURED'}</p>
+                    </div>
+                `;
+                appendMessageHtml("assistant blocked", "🛡️", warningHtml);
             }
         } else if (data.final_decision === "MASK") {
             bannerRiskBadge.textContent = "SANITIZED (L2)";
             bannerRiskBadge.className = "risk-badge low";
-            appendMessage("assistant masked", "🛡️", data.response);
+            appendMessage("assistant masked", "🛡️", "⚠️ RESPONSE SANITIZED:\n" + data.response);
         } else {
             bannerRiskBadge.textContent = "VERIFIED SAFE";
             bannerRiskBadge.className = "risk-badge low";
+            appendMessage("assistant safe-header", "🛡️", "✓ SAFE");
             appendMessage("assistant", "🤖", data.response);
         }
 
@@ -97,6 +144,20 @@ function appendMessage(roleClass, avatar, text) {
     container.scrollTop = container.scrollHeight;
 }
 
+function appendMessageHtml(roleClass, avatar, htmlContent) {
+    const container = document.getElementById("chatContainer");
+    const msgDiv = document.createElement("div");
+    msgDiv.className = `message ${roleClass}`;
+    msgDiv.innerHTML = `
+        <div class="msg-avatar">${avatar}</div>
+        <div class="msg-body">
+            ${htmlContent}
+        </div>
+    `;
+    container.appendChild(msgDiv);
+    container.scrollTop = container.scrollHeight;
+}
+
 function escapeHTML(str) {
     return str.replace(/[&<>'"]/g, 
         tag => ({
@@ -105,7 +166,7 @@ function escapeHTML(str) {
             '>': '&gt;',
             "'": '&#39;',
             '"': '&quot;'
-        }[tag] || tag)
+            }[tag] || tag)
     );
 }
 
