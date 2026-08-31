@@ -17,3 +17,8 @@ Thumbs.db
 ml/processed/
 # Python virtual environment
 .venv/
+
+# Model weights & binaries
+*.pt
+*.pth
+*.joblib

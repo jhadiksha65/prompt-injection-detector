@@ -44,6 +44,15 @@ class RiskScorer:
         elif rule_score >= 80.0:
             fused_score = max(fused_score, 70.0)
 
+        # ML Safety Floor: Prevent high-confidence ML results from being suppressed/downgraded by rule engine misses
+        if ml_available:
+            malicious_prob = ml_result.get("malicious_probability", 0.0)
+            if malicious_prob >= 0.95:
+                fused_score = max(fused_score, ml_score)
+            elif malicious_prob >= 0.90:
+                # Force at least HIGH risk level (fused score between 61 and 80) if not already critical
+                fused_score = max(fused_score, 75.0)
+
         # Cap fused score in [0.0, 100.0]
         final_risk_score = round(max(0.0, min(100.0, fused_score)), 2)
 
