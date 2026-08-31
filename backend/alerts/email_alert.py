@@ -8,7 +8,26 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Dict, Any
+
+# Robust .env loader
+def load_env():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    while current_dir and current_dir != "/":
+        env_path = os.path.join(current_dir, ".env")
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, val = line.split("=", 1)
+                        val = val.strip()
+                        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                            val = val[1:-1]
+                        os.environ[key.strip()] = val
+            break
+        current_dir = os.path.dirname(current_dir)
+
+load_env()
 
 
 def send_security_email(
@@ -18,13 +37,20 @@ def send_security_email(
     attack_type: str,
     action_taken: str,
     reason: str,
-    prompt_snippet: str
+    prompt_snippet: str,
+    layer1_status: str = "BLOCKED",
+    llm_called: str = "NO",
+    layer2_status: str = "NOT_EXECUTED",
+    leakage_detected: str = "FALSE",
+    leakage_score: str = "N/A",
+    final_decision: str = "BLOCKED"
 ) -> str:
     """
     Sends a security alert email or logs a simulated alert.
+    Returns: "SENT", "FAILED", or "NOT_CONFIGURED".
     """
     smtp_host = os.getenv("SMTP_HOST")
-    smtp_port = int(os.getenv("SMTP_PORT", 587))
+    smtp_port = int(os.getenv("SMTP_PORT", 587)) if os.getenv("SMTP_PORT") else 587
     smtp_user = os.getenv("SMTP_USER")
     smtp_pass = os.getenv("SMTP_PASSWORD")
     recipient = os.getenv("ALERT_EMAIL_RECIPIENT", "security-admin@enterprise.local")
@@ -45,9 +71,12 @@ Captured Context:
 "{prompt_snippet}"
 
 System Status:
-- Layer 1 Execution: Intercepted & Evaluated
-- Response Action: {action_taken}
-- Sensitive Resource: Access Locked (Re-authentication required)
+- Layer 1:         {layer1_status}
+- LLM Called:       {llm_called}
+- Layer 2:         {layer2_status}
+- Leakage Detected: {leakage_detected}
+- Leakage Score:    {leakage_score}
+- Final Decision:   {final_decision}
 =====================================================
     """
 
@@ -67,16 +96,21 @@ System Status:
             msg["Subject"] = subject
             msg.attach(MIMEText(body, "plain"))
 
-            server = smtplib.SMTP(smtp_host, smtp_port, timeout=5)
-            server.starttls()
+            # Connect using SSL (port 465) or standard TLS (other ports)
+            if smtp_port == 465:
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+            else:
+                server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+                server.starttls()
+                
             server.login(smtp_user, smtp_pass)
             server.sendmail(smtp_user, recipient, msg.as_string())
             server.quit()
-            return "EMAIL_SENT"
+            return "SENT"
         except Exception as e:
-            print(f"[EmailAlert] Failed to send real email ({e}). Defaulting to simulation.")
-            return "SIMULATION_FALLBACK"
+            print(f"[EmailAlert] Failed to send real email ({e}).")
+            return "FAILED"
     else:
         # Simulated alert for offline demonstration
-        print(f"\n[ALERT DISPATCHED] -> To: {recipient} | Subject: {subject}")
-        return "SIMULATED_EMAIL"
+        print(f"\n[ALERT SIMULATED] -> To: {recipient} | Subject: {subject}")
+        return "NOT_CONFIGURED"
