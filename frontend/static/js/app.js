@@ -73,25 +73,32 @@ async function handleSend(e) {
 
         if (data.final_decision === "BLOCK") {
             // Check if Layer 1 or Layer 2 caused the block
-            if (l1.decision === "BLOCK" || l1.risk_level === "CRITICAL") {
-                bannerRiskBadge.textContent = "CRITICAL / BLOCKED";
-                bannerRiskBadge.className = "risk-badge critical";
+            if (l1.decision === "BLOCK" || l1.risk_level === "CRITICAL" || l1.risk_level === "HIGH") {
+                const isCritical = (l1.risk_level === "CRITICAL");
+                const levelName = isCritical ? "CRITICAL" : "HIGH";
+                const badgeClass = isCritical ? "risk-badge critical" : "risk-badge high";
+                const borderColor = isCritical ? "#ef4444" : "#f97316";
+                const bgAlpha = isCritical ? "rgba(239, 68, 68, 0.1)" : "rgba(249, 115, 22, 0.1)";
+                const titleText = isCritical ? "🚨 CRITICAL THREAT BLOCKED" : "⚠️ HIGH-RISK PROMPT BLOCKED";
+
+                bannerRiskBadge.textContent = `${levelName} / BLOCKED`;
+                bannerRiskBadge.className = badgeClass;
                 
                 const warningHtml = `
-                    <div class="security-warning-card" style="border: 2px solid #ef4444; background: rgba(239, 68, 68, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0; font-family: sans-serif;">
-                        <h4 style="color: #ef4444; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">⚠️ SECURITY WARNING</h4>
+                    <div class="security-warning-card ${isCritical ? 'critical-block' : 'high-block'}" style="border: 2px solid ${borderColor}; background: ${bgAlpha}; padding: 15px; border-radius: 8px; margin: 10px 0; font-family: sans-serif;">
+                        <h4 style="color: ${borderColor}; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">${titleText}</h4>
                         <p style="margin: 4px 0; font-size: 14px;"><strong>Prompt blocked</strong></p>
-                        <p style="margin: 4px 0; font-size: 13px;"><strong>Risk Level:</strong> ${l1.risk_level || "CRITICAL"}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><strong>Risk Level:</strong> ${levelName}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><strong>Risk Score:</strong> ${l1.risk_score || 0}%</p>
                         <p style="margin: 4px 0; font-size: 13px;"><strong>Attack Type:</strong> ${l1.attack_type || "Prompt Injection"}</p>
-                        <p style="margin: 6px 0; padding: 6px; font-size: 13px; background: rgba(0,0,0,0.2); border-left: 3px solid #ef4444; color: #f8fafc;"><strong>Reason:</strong> ${l1.reason || "Potential instruction override detected."}</p>
+                        <p style="margin: 6px 0; padding: 6px; font-size: 13px; background: rgba(0,0,0,0.2); border-left: 3px solid ${borderColor}; color: #f8fafc;"><strong>Reason:</strong> ${l1.reason || "High adversarial risk detected."}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><strong>Email:</strong> ${data.email_status || 'NOT_CONFIGURED'}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><strong>SMS:</strong> ${data.sms_status || 'NOT_CONFIGURED'}</p>
                     </div>
                 `;
-                appendMessageHtml("assistant blocked", "🛡️", warningHtml);
+                appendMessageHtml("assistant blocked", isCritical ? "🚨" : "🛡️", warningHtml);
 
-                if (data.requires_reauth) {
+                if (data.requires_reauth && isCritical) {
                     openReauthModal(data);
                 }
             } else {
@@ -110,6 +117,22 @@ async function handleSend(e) {
                 `;
                 appendMessageHtml("assistant blocked", "🛡️", warningHtml);
             }
+        } else if (data.final_decision === "WARNING" || l1.decision === "WARNING" || l1.risk_level === "MEDIUM") {
+            bannerRiskBadge.textContent = "MEDIUM / WARNING";
+            bannerRiskBadge.className = "risk-badge medium";
+            bannerReason.textContent = `Reason: Security Advisory — ${l1.reason || "Moderate risk indicators detected."}`;
+
+            const warningHtml = `
+                <div class="security-warning-card medium-warning" style="border: 2px solid #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 15px; border-radius: 8px; margin: 10px 0; font-family: sans-serif;">
+                    <h4 style="color: #f59e0b; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">⚠️ SECURITY ADVISORY</h4>
+                    <p style="margin: 4px 0; font-size: 14px;"><strong>Elevated Risk Detected (${l1.risk_score || 0}%)</strong></p>
+                    <p style="margin: 4px 0; font-size: 13px;"><strong>Risk Level:</strong> MEDIUM</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><strong>Attack Type:</strong> ${l1.attack_type || "Advisory"}</p>
+                    <p style="margin: 6px 0; padding: 6px; font-size: 13px; background: rgba(0,0,0,0.2); border-left: 3px solid #f59e0b; color: #f8fafc;"><strong>Reason:</strong> ${l1.reason || "Review prompt before proceeding."}</p>
+                </div>
+            `;
+            appendMessageHtml("assistant warning", "🛡️", warningHtml);
+            appendMessage("assistant", "🤖", data.response);
         } else if (data.final_decision === "MASK") {
             bannerRiskBadge.textContent = "SANITIZED (L2)";
             bannerRiskBadge.className = "risk-badge low";

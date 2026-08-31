@@ -7,6 +7,7 @@ by fusing rule-based heuristic outputs with machine learning probability estimat
 from typing import Dict, Any
 from .threat_taxonomy import (
     ThreatCategory,
+    BinaryLabel,
     RiskLevel,
     SecurityDecision,
     map_risk_level,
@@ -38,20 +39,28 @@ class RiskScorer:
             # Fallback to rule score only if ML is not loaded
             fused_score = rule_score
 
-        # Critical Rule Floor: High-confidence heuristic trigger guarantees at least high risk
-        if rule_score >= 90.0:
+        # 1. Critical Rule Floor: Explicit heuristic attack patterns guarantee critical/high severity
+        if rule_score >= 85.0:
             fused_score = max(fused_score, 85.0)
-        elif rule_score >= 80.0:
+        elif rule_score >= 70.0:
             fused_score = max(fused_score, 70.0)
+        elif rule_score >= 45.0:
+            fused_score = max(fused_score, 45.0)
 
-        # ML Safety Floor: Prevent high-confidence ML results from being suppressed/downgraded by rule engine misses
+        # 2. ML Safety & Severity Floors: Separate classification from critical severity
         if ml_available:
             malicious_prob = ml_result.get("malicious_probability", 0.0)
-            if malicious_prob >= 0.95:
-                fused_score = max(fused_score, ml_score)
+            if malicious_prob >= 0.98:
+                if rule_score >= 80.0:
+                    fused_score = max(fused_score, ml_score)
+                else:
+                    # High ML adversarial confidence without direct override heuristic -> HIGH severity
+                    fused_score = max(fused_score, 75.0)
             elif malicious_prob >= 0.90:
-                # Force at least HIGH risk level (fused score between 61 and 80) if not already critical
-                fused_score = max(fused_score, 75.0)
+                fused_score = max(fused_score, 65.0)
+            elif malicious_prob >= 0.54:
+                # Moderate ML detection above threshold -> ensure at least MEDIUM severity (45.0)
+                fused_score = max(fused_score, 45.0)
 
         # Cap fused score in [0.0, 100.0]
         final_risk_score = round(max(0.0, min(100.0, fused_score)), 2)
@@ -73,9 +82,12 @@ class RiskScorer:
         if decision == SecurityDecision.BLOCK:
             reason = rule_result.get("reason") if rule_result.get("rule_triggered") else f"High adversarial probability detected ({final_risk_score}% risk)."
         elif decision == SecurityDecision.WARNING:
-            reason = "Potential prompt injection indicators or elevated risk detected. Review before submission."
+            reason = rule_result.get("reason") if rule_result.get("rule_triggered") else "Potential prompt injection indicators or elevated risk detected. Review before submission."
         else:
             reason = "No prompt injection patterns detected. Prompt is safe."
+
+        # Separate binary classification from risk severity:
+        is_malicious_classification = final_risk_score > 30.0
 
         return {
             "risk_score": final_risk_score,
@@ -84,5 +96,5 @@ class RiskScorer:
             "decision": decision.value,
             "reason": reason,
             "is_injection": decision == SecurityDecision.BLOCK.value or final_risk_score > 60.0,
-            "classification": "MALICIOUS" if final_risk_score > 50.0 else "BENIGN"
+            "classification": BinaryLabel.MALICIOUS.value if is_malicious_classification else BinaryLabel.BENIGN.value
         }

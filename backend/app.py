@@ -102,18 +102,24 @@ def detect():
     recipient_phone = os.getenv("ALERT_PHONE_NUMBER", "+91-XXXXXXXXXX")
     req_id = "SCAN"
 
-    if result.get("decision") == "BLOCK" or result.get("risk_level") == "CRITICAL":
+    risk_level = result.get("risk_level", "LOW")
+    is_critical = (risk_level == "CRITICAL")
+    is_blocked = (result.get("decision") == "BLOCK" or risk_level in ["CRITICAL", "HIGH"])
+
+    if is_blocked:
         import uuid
         req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
-        # Lock sensitive resource on critical attack
-        SESSION_STATE["is_locked"] = True
-        SESSION_STATE["lock_reason"] = f"{result.get('attack_type')} detected via browser extension."
+        # Lock sensitive resource only on CRITICAL attack
+        if is_critical:
+            SESSION_STATE["is_locked"] = True
+            SESSION_STATE["lock_reason"] = f"{result.get('attack_type')} detected via browser extension."
+            SESSION_STATE["last_critical_id"] = req_id
 
         # Dispatch automated Email & SMS alerts
         email_status = send_security_email(
             request_id=req_id,
             risk_score=result.get("risk_score", 0),
-            risk_level=result.get("risk_level", "CRITICAL"),
+            risk_level=risk_level,
             attack_type=result.get("attack_type", "Prompt Injection"),
             action_taken="PROMPT_BLOCKED_ON_CHATGPT",
             reason=result.get("reason", "Heuristic override detected"),
@@ -127,7 +133,7 @@ def detect():
         )
         sms_status = send_security_sms(
             request_id=req_id,
-            risk_level=result.get("risk_level", "CRITICAL"),
+            risk_level=risk_level,
             attack_type=result.get("attack_type", "Prompt Injection")
         )
 
@@ -135,7 +141,7 @@ def detect():
         log_incident(
             prompt=prompt_text,
             risk_score=result.get("risk_score", 0),
-            risk_level=result.get("risk_level", "CRITICAL"),
+            risk_level=risk_level,
             attack_type=result.get("attack_type", "Prompt Injection"),
             layer1_decision="BLOCK",
             layer2_decision="N/A",
@@ -147,7 +153,6 @@ def detect():
             sms_status=sms_status,
             request_id=req_id
         )
-        SESSION_STATE["last_critical_id"] = req_id
 
     result["request_id"] = req_id
     result["alert_status"] = email_status
@@ -191,12 +196,16 @@ def secure_prompt():
     # =========================================================
     # STEP 2: GATEWAY DECISION (BLOCK PATH)
     # =========================================================
-    if l1_decision == "BLOCK" or risk_level == "CRITICAL":
+    if l1_decision == "BLOCK" or risk_level in ["CRITICAL", "HIGH"]:
         import uuid
         req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
-        # Lock sensitive resource on critical attack
-        SESSION_STATE["is_locked"] = True
-        SESSION_STATE["lock_reason"] = f"{attack_type} detected with {risk_score}% threat risk."
+        is_critical = (risk_level == "CRITICAL")
+
+        # Lock sensitive resource ONLY on critical attack
+        if is_critical:
+            SESSION_STATE["is_locked"] = True
+            SESSION_STATE["lock_reason"] = f"{attack_type} detected with {risk_score}% critical threat risk."
+            SESSION_STATE["last_critical_id"] = req_id
 
         # Trigger Alerts
         email_status = send_security_email(
@@ -232,13 +241,12 @@ def secure_prompt():
             sms_status=sms_status,
             request_id=req_id
         )
-        SESSION_STATE["last_critical_id"] = req_id
 
         return jsonify({
             "request_id": req_id,
             "llm_called": False,
             "final_decision": "BLOCK",
-            "response": f"[SECURITY BLOCKED: {attack_type} detected. The prompt was not sent to the LLM.]",
+            "response": f"[SECURITY BLOCKED: {attack_type} detected ({risk_level} risk: {risk_score}%). The prompt was not sent to the LLM.]",
             "layer1": l1_result,
             "layer2": {
                 "decision": "NOT_EXECUTED",
@@ -256,15 +264,15 @@ def secure_prompt():
             "alert_status": email_status,
             "email_status": email_status,
             "sms_status": sms_status,
-            "sensitive_resource_locked": True,
-            "requires_reauth": True,
+            "sensitive_resource_locked": is_critical,
+            "requires_reauth": is_critical,
             "threat_details": {
                 "risk_score": risk_score,
                 "risk_level": risk_level,
                 "attack_type": attack_type,
                 "reason": l1_reason,
                 "alert_dispatched": email_status == "SENT",
-                "lock_status": "LOCKED"
+                "lock_status": "LOCKED" if is_critical else "ACTIVE"
             }
         }), 200
 
@@ -317,8 +325,8 @@ def secure_prompt():
         attack_type=attack_type,
         layer1_decision=l1_decision,
         layer2_decision=l2_decision,
-        final_decision=l2_decision if l2_decision != "SAFE" else "ALLOW",
-        reason=l2_result["reason"],
+        final_decision=l2_decision if l2_decision != "SAFE" else ("WARNING" if (l1_decision == "WARNING" or risk_level == "MEDIUM") else "ALLOW"),
+        reason=l2_result["reason"] if l2_decision != "SAFE" else l1_result["reason"],
         alert_status=email_status,
         client_ip=client_ip,
         email_status=email_status,
@@ -326,10 +334,12 @@ def secure_prompt():
         request_id=req_id
     )
 
+    overall_final_decision = l2_decision if l2_decision != "SAFE" else ("WARNING" if (l1_decision == "WARNING" or risk_level == "MEDIUM") else "ALLOW")
+
     return jsonify({
         "request_id": req_id,
         "llm_called": True,
-        "final_decision": l2_decision if l2_decision != "SAFE" else "ALLOW",
+        "final_decision": overall_final_decision,
         "response": final_response,
         "layer1": l1_result,
         "layer2": l2_result,

@@ -317,6 +317,16 @@ body {
     color: var(--accent-green);
 }
 
+.risk-badge.medium {
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--accent-amber);
+}
+
+.risk-badge.high {
+    background: rgba(249, 115, 22, 0.2);
+    color: #f97316;
+}
+
 .risk-badge.critical {
     background: rgba(239, 68, 68, 0.2);
     color: var(--accent-red);

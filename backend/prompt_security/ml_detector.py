@@ -25,7 +25,9 @@ class MLPromptDetector:
 
     def __init__(self, models_dir: Optional[str] = None):
         self.checkpoint = "distilbert-base-uncased"
-        self.model_path = os.path.abspath(os.path.join(ROOT_DIR, "experiments", "distilbert", "distilbert_model.pt"))
+        improved_path = os.path.abspath(os.path.join(ROOT_DIR, "experiments", "distilbert", "distilbert_model_improved.pt"))
+        base_path = os.path.abspath(os.path.join(ROOT_DIR, "experiments", "distilbert", "distilbert_model.pt"))
+        self.model_path = improved_path if os.path.exists(improved_path) else base_path
         self.tokenizer = None
         self.model = None
         self.is_loaded = False

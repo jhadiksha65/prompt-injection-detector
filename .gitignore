@@ -22,3 +22,5 @@ ml/processed/
 *.pt
 *.pth
 *.joblib
+!experiments/distilbert/distilbert_model.pt
+!experiments/distilbert/distilbert_model_improved.pt

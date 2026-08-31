@@ -51,7 +51,22 @@ class RuleBasedDetector:
             (r"\b(switch\s+(operational\s+)?focus:?\s*ignore\s+previous\s+tasks)\b", 88, "Operational domain hijacking directive")
         ]
 
-        # 5. Hard Negative Context Dampeners (Patterns indicating legitimate analysis)
+        # 5. Moderate / Suspicious Indicators (Medium Risk, 45-55)
+        self.moderate_patterns = [
+            (r"(<system>|<admin>|\[SYSTEM\]|\[INST\]|\[ADMIN\]|<\|im_start\|>|<\|im_end\|>)", 55, "System/Instruction markup delimiter in user input"),
+            (r"\b(pretend\s+(you\s+are|to\s+be)\s+(an?\s+)?(unrestricted|different|fictional\s+character|ai\s+without\s+rules))\b", 55, "Unconstrained roleplay framing"),
+            (r"\b(what\s+are\s+your\s+(hidden\s+)?instructions|tell\s+me\s+your\s+(internal\s+)?system\s+rules|reveal\s+internal\s+policies)\b", 50, "Internal policy inquiry probe"),
+            (r"\b(do\s+not\s+mention\s+(that\s+you\s+are\s+an\s+ai|your\s+safety\s+rules)|never\s+admit\s+to\s+being\s+an\s+ai)\b", 50, "Identity suppression constraint"),
+            (r"\b(decode\s+(and\s+execute|this\s+base64\s+payload)|run\s+the\s+encoded\s+command)\b", 55, "Encoded payload execution instruction")
+        ]
+
+        # 6. Weak / Low Suspicion Indicators (Low-Medium Risk, 25-35)
+        self.weak_patterns = [
+            (r"(###\s*instruction|---\s*system\s*directive|###\s*new\s*prompt)", 30, "Structural markdown boundary marker"),
+            (r"\b(execute\s+silently|respond\s+without\s+any\s+disclaimers|omit\s+all\s+warnings)\b", 35, "Disclaimer omission request")
+        ]
+
+        # 7. Hard Negative Context Dampeners (Patterns indicating legitimate analysis)
         self.hard_negative_indicators = [
             r"\b(why\s+(do|is|would)|can\s+you\s+explain\s+why|how\s+do\s+researchers|analyze\s+this\s+example|what\s+is\s+the\s+difference\s+between|for\s+an\s+academic\s+research\s+paper)\b",
             r"\b(in\s+object-oriented\s+programming|method\s+overriding\s+in\s+java|css\s+specificity|kubernetes.*override|interrupt\s+handler|git\s+merge\s+conflict)\b",
@@ -75,6 +90,7 @@ class RuleBasedDetector:
 
         text_lower = text.lower()
         matched_indicators = []
+        matched_scores = []
         max_score = 0.0
         detected_category = ThreatCategory.BENIGN.value
         detected_reason = "No heuristic injection patterns triggered."
@@ -85,6 +101,7 @@ class RuleBasedDetector:
             if matches:
                 matched_str = matches[0] if isinstance(matches[0], str) else " ".join([m for m in matches[0] if m])
                 matched_indicators.append(f"Direct Injection: '{matched_str}'")
+                matched_scores.append(score)
                 if score > max_score:
                     max_score = score
                     detected_category = ThreatCategory.DIRECT_INJECTION.value
@@ -96,6 +113,7 @@ class RuleBasedDetector:
             if matches:
                 matched_str = matches[0] if isinstance(matches[0], str) else " ".join([m for m in matches[0] if m])
                 matched_indicators.append(f"Jailbreak: '{matched_str}'")
+                matched_scores.append(score)
                 if score > max_score:
                     max_score = score
                     detected_category = ThreatCategory.JAILBREAK.value
@@ -107,6 +125,7 @@ class RuleBasedDetector:
             if matches:
                 matched_str = matches[0] if isinstance(matches[0], str) else " ".join([m for m in matches[0] if m])
                 matched_indicators.append(f"Prompt Leakage: '{matched_str}'")
+                matched_scores.append(score)
                 if score > max_score:
                     max_score = score
                     detected_category = ThreatCategory.PROMPT_LEAKAGE.value
@@ -118,17 +137,49 @@ class RuleBasedDetector:
             if matches:
                 matched_str = matches[0] if isinstance(matches[0], str) else " ".join([m for m in matches[0] if m])
                 matched_indicators.append(f"Goal Hijacking: '{matched_str}'")
+                matched_scores.append(score)
                 if score > max_score:
                     max_score = score
                     detected_category = ThreatCategory.GOAL_HIJACKING.value
                     detected_reason = reason
+
+        # Check Moderate Suspicious Indicators
+        for pattern, score, reason in self.moderate_patterns:
+            matches = re.findall(pattern, text_lower)
+            if matches:
+                matched_str = matches[0] if isinstance(matches[0], str) else " ".join([m for m in matches[0] if m])
+                matched_indicators.append(f"Suspicious Indicator: '{matched_str}'")
+                matched_scores.append(score)
+                if score > max_score:
+                    max_score = score
+                    if detected_category == ThreatCategory.BENIGN.value:
+                        detected_category = ThreatCategory.DIRECT_INJECTION.value
+                        detected_reason = reason
+
+        # Check Weak Indicators
+        for pattern, score, reason in self.weak_patterns:
+            matches = re.findall(pattern, text_lower)
+            if matches:
+                matched_str = matches[0] if isinstance(matches[0], str) else " ".join([m for m in matches[0] if m])
+                matched_indicators.append(f"Low-Risk Indicator: '{matched_str}'")
+                matched_scores.append(score)
+                if score > max_score:
+                    max_score = score
+                    if detected_category == ThreatCategory.BENIGN.value:
+                        detected_category = ThreatCategory.DIRECT_INJECTION.value
+                        detected_reason = reason
+
+        # Multi-indicator combination: multiple moderate/weak indicators elevate score
+        if len(matched_scores) > 1:
+            other_sum = sum(matched_scores) - max_score
+            max_score = min(85.0 if max_score < 80 else 100.0, max_score + (0.25 * other_sum))
 
         # Apply Hard Negative Dampener if metalinguistic context is strong
         if max_score > 0:
             for hn_pattern in self.hard_negative_indicators:
                 if re.search(hn_pattern, text_lower):
                     # Reduce rule score for educational/exploratory inquiries
-                    max_score = max(0.0, max_score - 45.0)
+                    max_score = max(0.0, max_score - 75.0)
                     matched_indicators.append("Context: Educational/Analytical phrasing detected (Dampened)")
                     if max_score <= 30:
                         detected_category = ThreatCategory.BENIGN.value

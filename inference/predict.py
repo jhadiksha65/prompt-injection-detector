@@ -20,7 +20,7 @@ from transformers import DistilBertTokenizer, AutoModelForSequenceClassification
 
 # Configuration
 MODEL_CHECKPOINT = "distilbert-base-uncased"
-MODEL_PATH = "experiments/distilbert/distilbert_model.pt"
+MODEL_PATH = "experiments/distilbert/distilbert_model_improved.pt" if os.path.exists("experiments/distilbert/distilbert_model_improved.pt") else "experiments/distilbert/distilbert_model.pt"
 THRESHOLD = 0.54
 MAX_LEN = 128
 

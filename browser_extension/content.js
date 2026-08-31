@@ -74,10 +74,152 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
         color: #f1f5f9;
     `;
 
-    const isBlock = result.decision === "BLOCK";
-    const headerColor = isBlock ? "#ef4444" : "#f59e0b";
-    const badgeBg = isBlock ? "rgba(239, 68, 68, 0.2)" : "rgba(245, 158, 11, 0.2)";
-    const badgeBorder = isBlock ? "#ef4444" : "#f59e0b";
+    const isCritical = result.risk_level === "CRITICAL";
+    const isHigh = result.risk_level === "HIGH";
+    const isMedium = result.risk_level === "MEDIUM" || result.decision === "WARNING";
+    const isBlock = result.decision === "BLOCK" || isCritical || isHigh;
+
+    let headerColor = "#ef4444";
+    let badgeBg = "rgba(239, 68, 68, 0.2)";
+    let badgeBorder = "#ef4444";
+    let modalTitle = "CRITICAL THREAT BLOCKED";
+
+    if (isCritical) {
+        headerColor = "#ef4444";
+        badgeBg = "rgba(239, 68, 68, 0.2)";
+        badgeBorder = "#ef4444";
+        modalTitle = "CRITICAL THREAT BLOCKED";
+    } else if (isHigh) {
+        headerColor = "#f97316";
+        badgeBg = "rgba(249, 115, 22, 0.2)";
+        badgeBorder = "#f97316";
+        modalTitle = "HIGH-RISK PROMPT BLOCKED";
+    } else {
+        headerColor = "#f59e0b";
+        badgeBg = "rgba(245, 158, 11, 0.2)";
+        badgeBorder = "#f59e0b";
+        modalTitle = "SECURITY ADVISORY WARNING";
+    }
+
+    // Section for critical re-auth vs high block vs advisory proceed
+    let securityActionHtml = "";
+    if (isCritical) {
+        // Alert Dispatched Notice (for critical blocked threats)
+        const alertHtml = (result.alert_status === "SENT" || result.email_status === "SENT") ? `
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 18px;">📧</span>
+                <div style="font-size: 12px; color: #93c5fd; line-height: 1.4;">
+                    <strong>Alert Dispatched:</strong> Security incident logged and dispatched to: <code>${result.alert_recipient_email || "security-admin@enterprise.local"}</code>
+                </div>
+            </div>
+        ` : '';
+
+        securityActionHtml = `
+            ${alertHtml}
+            <div style="background: #0f172a; border-radius: 8px; padding: 14px; margin-bottom: 18px; border: 1px solid #334155;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <span style="font-size: 16px;">🔒</span>
+                    <span style="font-size: 13px; font-weight: 700; color: #f1f5f9;">Session Suspended • Re-Authentication</span>
+                </div>
+                <p style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
+                    Critical prompt injection attempt detected. Enter authorized credentials to unlock session and override.
+                </p>
+                <div style="display: flex; gap: 8px;">
+                    <input id="pid-auth-pwd" type="password" placeholder="Enter password (admin123)" style="
+                        flex: 1;
+                        background: #1e293b;
+                        border: 1px solid #475569;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        color: #fff;
+                        font-size: 13px;
+                        outline: none;
+                    " />
+                    <button id="pid-btn-reauth" style="
+                        background: #ef4444;
+                        color: #fff;
+                        border: none;
+                        padding: 8px 14px;
+                        border-radius: 6px;
+                        font-weight: 700;
+                        cursor: pointer;
+                        font-size: 12px;
+                    ">Unlock</button>
+                </div>
+                <div id="pid-auth-msg" style="font-size: 11px; margin-top: 6px; display: none;"></div>
+            </div>
+        `;
+    } else if (isHigh) {
+        // High Risk Blocked (No session suspension)
+        const alertHtml = (result.alert_status === "SENT" || result.email_status === "SENT") ? `
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 18px;">📧</span>
+                <div style="font-size: 12px; color: #93c5fd; line-height: 1.4;">
+                    <strong>Alert Dispatched:</strong> High-risk security event logged and reported.
+                </div>
+            </div>
+        ` : '';
+
+        securityActionHtml = `
+            ${alertHtml}
+            <div style="background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 18px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span style="font-size: 16px;">⚠️</span>
+                    <strong style="font-size: 13px; color: #f97316;">High-Risk Adversarial Input Blocked</strong>
+                </div>
+                <p style="font-size: 12px; color: #cbd5e1; margin: 0; line-height: 1.4;">
+                    This prompt contains high-risk instruction patterns and was blocked by Layer 1 security before reaching the model.
+                </p>
+            </div>
+        `;
+    } else {
+        // Advisory Warning Note for Medium risk
+        securityActionHtml = `
+            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 18px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                    <span style="font-size: 16px;">⚠️</span>
+                    <strong style="font-size: 13px; color: #fbbf24;">Security Advisory Notice</strong>
+                </div>
+                <p style="font-size: 12px; color: #cbd5e1; margin: 0; line-height: 1.4;">
+                    Potential prompt injection indicators or elevated risk detected. Review your prompt or click <strong>Proceed with Submission</strong> if this input is intended.
+                </p>
+            </div>
+        `;
+    }
+
+    const footerButtonsHtml = isBlock ? `
+        <button id="pid-btn-dismiss" style="
+            background: #334155;
+            color: #f1f5f9;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        ">Cancel & Edit Prompt</button>
+    ` : `
+        <button id="pid-btn-dismiss" style="
+            background: #334155;
+            color: #f1f5f9;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        ">Cancel & Edit Prompt</button>
+        <button id="pid-btn-proceed" style="
+            background: #f59e0b;
+            color: #0f172a;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s;
+        ">Proceed with Submission</button>
+    `;
 
     overlay.innerHTML = `
         <div style="
@@ -95,12 +237,12 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <span style="font-size: 24px;">🛡️</span>
                     <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: ${headerColor};">
-                        ${isBlock ? "PROMPT INJECTION BLOCKED" : "SECURITY ADVISORY WARNING"}
+                        ${modalTitle}
                     </h3>
                 </div>
                 <span style="
                     background: ${badgeBorder};
-                    color: #fff;
+                    color: ${isBlock ? "#fff" : "#0f172a"};
                     font-size: 12px;
                     font-weight: 800;
                     padding: 4px 10px;
@@ -136,60 +278,12 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
                     </div>
                 </div>
 
-                <!-- Alert Dispatch Notice -->
-                <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 18px;">📧</span>
-                    <div style="font-size: 12px; color: #93c5fd; line-height: 1.4;">
-                        <strong>Alert Dispatched:</strong> Security notification sent to registered account holder: <code>${result.alert_recipient_email || "account-holder@domain.com"}</code>
-                    </div>
-                </div>
-
-                <!-- Security Re-Authentication Section -->
-                <div style="background: #0f172a; border-radius: 8px; padding: 14px; margin-bottom: 18px; border: 1px solid #334155;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 16px;">🔒</span>
-                        <span style="font-size: 13px; font-weight: 700; color: #f1f5f9;">Session Suspended • Re-Authentication</span>
-                    </div>
-                    <p style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
-                        Critical prompt injection attempt detected. Enter authorized credentials to unlock session and override.
-                    </p>
-                    <div style="display: flex; gap: 8px;">
-                        <input id="pid-auth-pwd" type="password" placeholder="Enter password (admin123)" style="
-                            flex: 1;
-                            background: #1e293b;
-                            border: 1px solid #475569;
-                            padding: 8px 12px;
-                            border-radius: 6px;
-                            color: #fff;
-                            font-size: 13px;
-                            outline: none;
-                        " />
-                        <button id="pid-btn-reauth" style="
-                            background: #ef4444;
-                            color: #fff;
-                            border: none;
-                            padding: 8px 14px;
-                            border-radius: 6px;
-                            font-weight: 700;
-                            cursor: pointer;
-                            font-size: 12px;
-                        ">Unlock</button>
-                    </div>
-                    <div id="pid-auth-msg" style="font-size: 11px; margin-top: 6px; display: none;"></div>
-                </div>
+                <!-- Security Action Section (Re-Auth or Advisory) -->
+                ${securityActionHtml}
 
                 <!-- Footer Actions -->
                 <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                    <button id="pid-btn-dismiss" style="
-                        background: #334155;
-                        color: #f1f5f9;
-                        border: none;
-                        padding: 10px 18px;
-                        border-radius: 8px;
-                        font-weight: 600;
-                        cursor: pointer;
-                        transition: background 0.2s;
-                    ">Cancel & Edit Prompt</button>
+                    ${footerButtonsHtml}
                 </div>
             </div>
         </div>
@@ -201,6 +295,15 @@ function showSecurityModal(result, rawPrompt, onDismiss) {
         overlay.remove();
         if (onDismiss) onDismiss();
     });
+
+    const proceedBtn = document.getElementById("pid-btn-proceed");
+    if (proceedBtn) {
+        proceedBtn.addEventListener("click", () => {
+            isSubmissionApproved = true;
+            overlay.remove();
+            triggerOriginalSubmit();
+        });
+    }
 
     const reauthBtn = document.getElementById("pid-btn-reauth");
     if (reauthBtn) {
