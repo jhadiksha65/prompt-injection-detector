@@ -18,7 +18,7 @@ class RuleBasedDetector:
     def __init__(self):
         # 1. Direct Prompt Injection Patterns
         self.direct_patterns = [
-            (r"\b(ignore|disregard|forget|override|bypass|discard|cancel)\s+(all\s+)?(previous|prior|above|preceding|earlier|past)\s+(instructions?|rules?|directives?|guidelines?|constraints?|prompts?)\b", 95, "Instruction override directive detected"),
+            (r"\b(ignore|disregard|forget|override|bypass|discard|cancel)\s+(all\s+)?(the\s+above|previous|prior|above|preceding|earlier|past)(\s+(instructions?|rules?|directives?|guidelines?|constraints?|prompts?|context))?\b", 95, "Instruction override directive detected"),
             (r"\b(system\s+override|instruction\s+reset|admin\s+command|developer\s+emergency\s+mode)\b", 90, "Privileged system control override tag detected"),
             (r"\b(override\s+(all\s+)?safety\s+(rules|filters|guidelines))\b", 92, "Safety filter override instruction"),
             (r"\b(act\s+as\s+(a\s+)?(fully\s+)?unrestricted\s+(bash\s+)?terminal|root\s+shell)\b", 90, "Terminal/root shell emulation override"),

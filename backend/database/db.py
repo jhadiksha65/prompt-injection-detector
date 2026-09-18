@@ -126,7 +126,7 @@ def get_all_incidents(limit: int = 50) -> List[Dict[str, Any]]:
     """Retrieves recent incidents."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM incidents ORDER BY id DESC LIMIT ?")
+    cursor.execute("SELECT * FROM incidents ORDER BY id DESC LIMIT ?", (limit,))
     rows = cursor.fetchall()
     incidents = [dict(row) for row in rows]
     conn.close()

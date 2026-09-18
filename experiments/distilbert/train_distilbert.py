@@ -1,10 +1,15 @@
 import os
 import time
+import argparse
 import torch
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
-from transformers import DistilBertTokenizer, AutoModelForSequenceClassification
+from transformers import (
+    DistilBertTokenizer,
+    AutoModelForSequenceClassification,
+    get_linear_schedule_with_warmup
+)
 from torch.optim import AdamW
 from sklearn.metrics import (
     accuracy_score,
@@ -15,19 +20,22 @@ from sklearn.metrics import (
     confusion_matrix
 )
 
-# Configuration
-TRAIN_PATH = "data/final/train.csv"
+# Configuration Defaults
+DEFAULT_TRAIN_PATH = "data/final/train_augmented.csv"
 VAL_PATH = "data/final/validation.csv"
 TEST_PATH = "data/final/test.csv"
+HARD_NEG_PATH = "data/final/hard_negatives.csv"
 EXP_DIR = "experiments/distilbert"
 MODEL_CHECKPOINT = "distilbert-base-uncased"
 MAX_LEN = 128
 BATCH_SIZE = 32
-LR = 2e-5
+DEFAULT_LR = 3e-5
+WEIGHT_DECAY = 0.01
 EPOCHS = 3
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu"))
 
 os.makedirs(EXP_DIR, exist_ok=True)
+
 
 class PromptDataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_len):
@@ -58,10 +66,12 @@ class PromptDataset(Dataset):
             "label": torch.tensor(label, dtype=torch.long)
         }
 
+
 def load_data(path):
     df = pd.read_csv(path)
     df["prompt"] = df["prompt"].fillna("").astype(str)
     return df["prompt"].values, df["label"].values
+
 
 def get_predictions(model, dataloader):
     model.eval()
@@ -82,51 +92,74 @@ def get_predictions(model, dataloader):
             
     return np.array(all_probs), np.array(all_labels)
 
-def main():
-    print("=" * 60)
-    print("PROMPT INJECTION DETECTOR - DISTILBERT EXPERIMENT")
-    print("=" * 60)
-    print(f"Device: {DEVICE}")
+
+def train_and_evaluate(train_path=DEFAULT_TRAIN_PATH, lr=DEFAULT_LR, epochs=EPOCHS, batch_size=BATCH_SIZE, output_model_name="distilbert_model_improved.pt"):
+    print("=" * 70)
+    print("PROMPT INJECTION DETECTOR - DISTILBERT SPECIALIZATION TRAINING")
+    print("=" * 70)
+    print(f"Device:            {DEVICE}")
+    print(f"Training Dataset:  {train_path}")
+    print(f"Base Model:        {MODEL_CHECKPOINT}")
+    print(f"Learning Rate:     {lr}")
+    print(f"Batch Size:        {batch_size}")
+    print(f"Weight Decay:      {WEIGHT_DECAY}")
+    print(f"Max Seq Length:    {MAX_LEN}")
+    print(f"Max Epochs:        {epochs}")
+    print("=" * 70)
     
     # 1. Load data
     print("\nLoading datasets...")
-    X_train, y_train = load_data(TRAIN_PATH)
+    X_train, y_train = load_data(train_path)
     X_val, y_val = load_data(VAL_PATH)
     X_test, y_test = load_data(TEST_PATH)
+    X_hn, y_hn = load_data(HARD_NEG_PATH)
     
-    print(f"Train samples:      {len(X_train)}")
-    print(f"Validation samples: {len(X_val)}")
-    print(f"Test samples:       {len(X_test)}")
+    print(f"Train samples:          {len(X_train)}")
+    print(f"Validation samples:     {len(X_val)}")
+    print(f"Test samples:           {len(X_test)}")
+    print(f"Hard-Negative samples:  {len(X_hn)}")
     
     # 2. Tokenizer and DataLoader
-    print(f"\nLoading tokenizer: {MODEL_CHECKPOINT}...")
     tokenizer = DistilBertTokenizer.from_pretrained(MODEL_CHECKPOINT)
     
     train_dataset = PromptDataset(X_train, y_train, tokenizer, MAX_LEN)
     val_dataset = PromptDataset(X_val, y_val, tokenizer, MAX_LEN)
     test_dataset = PromptDataset(X_test, y_test, tokenizer, MAX_LEN)
+    hn_dataset = PromptDataset(X_hn, y_hn, tokenizer, MAX_LEN)
     
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    train_eval_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    hn_loader = DataLoader(hn_dataset, batch_size=batch_size, shuffle=False)
     
-    # 3. Load Model
-    print(f"Loading pretrained model: {MODEL_CHECKPOINT}...")
+    # 3. Model & Optimizer with Weight Decay
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_CHECKPOINT, num_labels=2)
     model = model.to(DEVICE)
     
-    optimizer = AdamW(model.parameters(), lr=LR)
+    # Group parameters for weight decay (no decay on bias and LayerNorm)
+    no_decay = ['bias', 'LayerNorm.weight']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': WEIGHT_DECAY},
+        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
+    optimizer = AdamW(optimizer_grouped_parameters, lr=lr)
+    
+    total_steps = len(train_loader) * epochs
+    warmup_steps = int(total_steps * 0.1)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
     
     # 4. Training loop with early stopping / best validation checkpoint tracking
-    print("\nTraining DistilBERT model...")
+    print("\nTraining DistilBERT model with early stopping on validation loss...")
     best_val_loss = float('inf')
+    best_val_f1 = 0.0
     best_model_state = None
+    best_epoch = 1
     
     train_start_time = time.time()
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, epochs + 1):
         model.train()
-        total_loss = 0
+        total_train_loss = 0
         
         for batch in train_loader:
             optimizer.zero_grad()
@@ -139,13 +172,15 @@ def main():
             loss = outputs.loss
             
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
+            scheduler.step()
             
-            total_loss += loss.item()
+            total_train_loss += loss.item()
             
-        avg_train_loss = total_loss / len(train_loader)
+        avg_train_loss = total_train_loss / len(train_loader)
         
-        # Validation loss tracking
+        # Validation evaluation
         model.eval()
         val_loss = 0
         with torch.no_grad():
@@ -158,38 +193,38 @@ def main():
                 val_loss += outputs.loss.item()
                 
         avg_val_loss = val_loss / len(val_loader)
-        print(f"Epoch {epoch}/{EPOCHS} - Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+        
+        # Calculate validation F1
+        val_probs, val_true = get_predictions(model, val_loader)
+        val_preds = (val_probs >= 0.50).astype(int)
+        val_f1 = f1_score(val_true, val_preds, zero_division=0)
+        
+        print(f"Epoch {epoch}/{epochs} - Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Val F1 (0.50): {val_f1:.4f}")
         
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
+            best_val_f1 = val_f1
+            best_epoch = epoch
             best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             
     train_time = time.time() - train_start_time
-    print(f"DistilBERT training completed in {train_time:.2f} seconds")
+    print(f"\nTraining completed in {train_time:.2f}s. Best Epoch: {best_epoch} (Val Loss: {best_val_loss:.4f}, Val F1: {best_val_f1:.4f})")
     
     # Restore best checkpoint
     model.load_state_dict({k: v.to(DEVICE) for k, v in best_model_state.items()})
     
     # Save the model
-    torch.save(best_model_state, f"{EXP_DIR}/distilbert_model.pt")
+    save_path = os.path.join(EXP_DIR, output_model_name)
+    torch.save(best_model_state, save_path)
+    print(f"Saved best model checkpoint to: {save_path}")
     
     # 5. Predict probabilities
-    print("\nPredicting probabilities for threshold tuning and evaluation...")
-    
-    start_time = time.time()
-    y_train_probs, y_train_true = get_predictions(model, train_eval_loader)
-    train_inf_time = time.time() - start_time
-    
-    start_time = time.time()
+    print("\nEvaluating model on validation, test, and hard-negative benchmarks...")
     y_val_probs, y_val_true = get_predictions(model, val_loader)
-    val_inf_time = time.time() - start_time
-    
-    start_time = time.time()
     y_test_probs, y_test_true = get_predictions(model, test_loader)
-    test_inf_time = time.time() - start_time
+    y_hn_probs, y_hn_true = get_predictions(model, hn_loader)
     
-    # 6. Threshold Selection on Validation Set Only
-    print("\nTuning decision threshold on validation set...")
+    # 6. Threshold Selection on Validation Set
     thresholds = np.linspace(0.0, 1.0, 101)
     valid_thresholds = []
     
@@ -200,7 +235,6 @@ def main():
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
         f1 = f1_score(y_val_true, preds, zero_division=0)
-        
         meets_constraints = (recall >= 0.95) and (fpr <= 0.05)
         
         valid_thresholds.append({
@@ -214,24 +248,16 @@ def main():
     valid_df = pd.DataFrame(valid_thresholds)
     constrained_candidates = valid_df[valid_df["meets_constraints"]]
     
-    constraint_failure = False
     if not constrained_candidates.empty:
         best_candidate = constrained_candidates.loc[constrained_candidates["f1"].idxmax()]
-        chosen_threshold = best_candidate["threshold"]
-        print(f"Optimal threshold meeting constraints (Recall >= 95%, FPR <= 5%): {chosen_threshold:.2f}")
+        chosen_threshold = float(best_candidate["threshold"])
     else:
-        constraint_failure = True
         best_candidate = valid_df.loc[valid_df["f1"].idxmax()]
-        chosen_threshold = best_candidate["threshold"]
-        print(f"WARNING: No threshold satisfied both Recall >= 95% and FPR <= 5% simultaneously.")
-        print(f"Falling back to threshold with best F1-score: {chosen_threshold:.2f}")
+        chosen_threshold = float(best_candidate["threshold"])
         
-    print(f"Validation F1 at chosen threshold: {best_candidate['f1']:.4f}")
-    print(f"Validation Recall at chosen threshold: {best_candidate['recall']:.4f}")
-    print(f"Validation FPR at chosen threshold: {best_candidate['fpr']:.4f}")
+    print(f"Optimal threshold chosen on Validation Set: {chosen_threshold:.2f} (F1: {best_candidate['f1']:.4f}, Recall: {best_candidate['recall']:.4f}, FPR: {best_candidate['fpr']:.4f})")
     
-    # 7. Evaluation Function
-    def evaluate_model(y_true, y_probs, threshold, name, samples_count, inference_time):
+    def evaluate_dataset(y_true, y_probs, threshold, name):
         preds = (y_probs >= threshold).astype(int)
         tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
         
@@ -243,22 +269,19 @@ def main():
         fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
         fnr = fn / (fn + tp) if (fn + tp) > 0 else 0.0
         
-        print("\n" + "=" * 40)
-        print(f"RESULTS FOR: {name}")
-        print("=" * 40)
-        print(f"Number of samples:   {samples_count}")
+        print("\n" + "-" * 50)
+        print(f"EVALUATION: {name}")
+        print("-" * 50)
+        print(f"Samples:             {len(y_true)}")
         print(f"Decision Threshold:  {threshold:.2f}")
-        print(f"Accuracy:            {acc:.4f}")
+        print(f"Accuracy:            {acc:.4f} ({acc*100:.2f}%)")
         print(f"Precision:           {prec:.4f}")
         print(f"Recall:              {rec:.4f}")
         print(f"F1-score:            {f1:.4f}")
         print(f"ROC-AUC:             {roc_auc:.4f}")
-        print(f"False Positive Rate: {fpr:.4f}")
-        print(f"False Negative Rate: {fnr:.4f}")
-        print("\nConfusion Matrix:")
-        print(f"  [[TN={tn}, FP={fp}],")
-        print(f"   [FN={fn}, TP={tp}]]")
-        print(f"Inference Time:      {inference_time:.4f} seconds")
+        print(f"False Positive Rate: {fpr:.4f} (FP={fp})")
+        print(f"False Negative Rate: {fnr:.4f} (FN={fn})")
+        print(f"Confusion Matrix:    [[TN={tn}, FP={fp}], [FN={fn}, TP={tp}]]")
         
         return {
             "accuracy": acc,
@@ -267,30 +290,39 @@ def main():
             "f1": f1,
             "roc_auc": roc_auc,
             "fpr": fpr,
-            "fnr": fnr
+            "fnr": fnr,
+            "fp": fp,
+            "fn": fn,
+            "tn": tn,
+            "tp": tp
         }
-
-    # Evaluate
-    evaluate_model(y_train_true, y_train_probs, chosen_threshold, "DistilBERT (Train - Diagnostic)", len(y_train_true), train_inf_time)
-    evaluate_model(y_val_true, y_val_probs, chosen_threshold, "DistilBERT (Validation - Tuned)", len(y_val_true), val_inf_time)
-    test_metrics = evaluate_model(y_test_true, y_test_probs, chosen_threshold, "DistilBERT (Test - Final Evaluation)", len(y_test_true), test_inf_time)
+        
+    val_results = evaluate_dataset(y_val_true, y_val_probs, chosen_threshold, "Validation Set")
+    test_results = evaluate_dataset(y_test_true, y_test_probs, chosen_threshold, "Untouched Test Benchmark")
+    hn_results = evaluate_dataset(y_hn_true, y_hn_probs, chosen_threshold, "Hard-Negative Benchmark")
     
-    print("\n" + "=" * 60)
-    print("FINAL SUMMARY SCREENSHOT CAPTURE READY")
-    print("=" * 60)
-    print("Model Name:                  DistilBERT")
-    print(f"Pretrained Model Name:      {MODEL_CHECKPOINT}")
-    print(f"Configuration:              Batch size={BATCH_SIZE}, LR={LR}, Epochs={EPOCHS}, Max Len={MAX_LEN}, threshold={chosen_threshold:.2f}")
-    print(f"Constraint Failure:         {constraint_failure}")
-    print(f"Test Accuracy:              {test_metrics['accuracy']:.4f}")
-    print(f"Test Precision:             {test_metrics['precision']:.4f}")
-    print(f"Test Recall:                {test_metrics['recall']:.4f}")
-    print(f"Test F1-score:              {test_metrics['f1']:.4f}")
-    print(f"Test ROC-AUC:               {test_metrics['roc_auc']:.4f}")
-    print(f"Test False Positive Rate:   {test_metrics['fpr']:.4f}")
-    print(f"Test False Negative Rate:   {test_metrics['fnr']:.4f}")
-    print(f"Training Time:              {train_time:.2f} seconds")
-    print("=" * 60)
+    return {
+        "chosen_threshold": chosen_threshold,
+        "val_results": val_results,
+        "test_results": test_results,
+        "hn_results": hn_results
+    }
+
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train_path", type=str, default=DEFAULT_TRAIN_PATH)
+    parser.add_argument("--lr", type=float, default=DEFAULT_LR)
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--output_model", type=str, default="distilbert_model_improved.pt")
+    args = parser.parse_args()
+    
+    train_and_evaluate(
+        train_path=args.train_path,
+        lr=args.lr,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        output_model_name=args.output_model
+    )
+

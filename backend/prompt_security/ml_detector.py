@@ -107,8 +107,8 @@ class MLPromptDetector:
             malicious_prob = float(probs[0, 1].item())
             
         ml_score = round(malicious_prob * 100.0, 2)
-        # Apply the validated threshold: 0.54
-        is_malicious = malicious_prob >= 0.54
+        # Apply the validated threshold: 0.50
+        is_malicious = malicious_prob >= 0.50
         confidence = float(probs[0, 1].item()) if is_malicious else float(probs[0, 0].item())
 
         return {

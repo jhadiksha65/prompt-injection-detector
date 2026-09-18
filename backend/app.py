@@ -249,6 +249,7 @@ def secure_prompt():
             "response": f"[SECURITY BLOCKED: {attack_type} detected ({risk_level} risk: {risk_score}%). The prompt was not sent to the LLM.]",
             "layer1": l1_result,
             "layer2": {
+                "status": "BYPASSED_DUE_TO_BLOCK",
                 "decision": "NOT_EXECUTED",
                 "is_safe": False,
                 "reason": "Layer 1 blocked the request before LLM generation.",
