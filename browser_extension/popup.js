@@ -6,34 +6,66 @@
 
 document.addEventListener("DOMContentLoaded", () => {
     const scanBtn = document.getElementById("scanBtn");
-    const statusBadge = document.getElementById("statusBadge");
+    const retryBtn = document.getElementById("retryBtn");
+    
+    // Header
+    const headerStatusDot = document.getElementById("headerStatusDot");
+    const headerStatusText = document.getElementById("headerStatusText");
+    
+    // States
+    const emptyState = document.getElementById("emptyState");
+    const resultState = document.getElementById("resultState");
+    
+    // Result elements
+    const resultHeader = document.getElementById("resultHeader");
+    const topDecisionText = document.getElementById("topDecisionText");
     const riskScoreVal = document.getElementById("riskScoreVal");
     const progressBar = document.getElementById("progressBar");
+    const reasonText = document.getElementById("reasonText");
     const attackType = document.getElementById("attackType");
     const decisionVal = document.getElementById("decisionVal");
-    const reasonText = document.getElementById("reasonText");
+    
+    // Prompt
     const scannedPromptText = document.getElementById("scannedPromptText");
-    const scanTimestamp = document.getElementById("scanTimestamp");
-    const backendStatus = document.getElementById("backendStatus");
+    const viewFullPrompt = document.getElementById("viewFullPrompt");
+
+    let currentPromptFull = "";
 
     // 1. Check Backend Connectivity
-    fetch("http://localhost:5000/health")
-        .then((res) => {
-            if (res.ok) {
-                backendStatus.textContent = "● Backend Connected (Port 5000)";
-                backendStatus.className = "backend-status online";
-            } else {
-                throw new Error("Status " + res.status);
-            }
-        })
-        .catch(() => {
-            backendStatus.textContent = "○ Backend Offline (Start Flask API)";
-            backendStatus.className = "backend-status offline";
-        });
+    function checkConnection() {
+        fetch("http://localhost:5000/health")
+            .then((res) => {
+                if (res.ok) {
+                    headerStatusText.textContent = "Connected";
+                    headerStatusDot.className = "status-dot online";
+                    scanBtn.style.display = "block";
+                    retryBtn.style.display = "none";
+                } else {
+                    throw new Error("Status " + res.status);
+                }
+            })
+            .catch(() => {
+                headerStatusText.textContent = "Backend Offline";
+                headerStatusDot.className = "status-dot offline";
+                scanBtn.style.display = "none";
+                retryBtn.style.display = "block";
+            });
+    }
+    
+    checkConnection();
+    
+    retryBtn.addEventListener("click", () => {
+        headerStatusText.textContent = "Connecting...";
+        headerStatusDot.className = "status-dot";
+        checkConnection();
+    });
 
     // 2. Render scan record into UI
-    function renderScanResult(prompt, result, timestamp) {
+    function renderScanResult(prompt, result) {
         if (!result) return;
+        
+        emptyState.style.display = "none";
+        resultState.style.display = "block";
 
         const score = result.risk_score !== undefined ? result.risk_score : 0;
         const decision = result.decision || "ALLOW";
@@ -42,27 +74,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Update score & progress
         riskScoreVal.textContent = `${score}%`;
-        progressBar.style.width = `${Math.min(100, Math.max(4, score))}%`;
+        progressBar.style.width = `${Math.min(100, Math.max(0, score))}%`;
 
-        // Update classes based on risk
+        // Reset classes
+        resultHeader.className = "result-header";
+        progressBar.className = "risk-meter-fill";
+        decisionVal.className = "info-value";
+
+        // Update state styling based on decision/risk
         if (decision === "BLOCK" || score >= 80) {
-            statusBadge.textContent = "BLOCKED";
-            statusBadge.className = "status-badge blocked";
-            progressBar.className = "progress-fill blocked";
-            riskScoreVal.style.color = "#ef4444";
-            decisionVal.style.color = "#ef4444";
-        } else if (decision === "WARNING" || score > 30) {
-            statusBadge.textContent = "WARNING";
-            statusBadge.className = "status-badge warning";
-            progressBar.className = "progress-fill warning";
-            riskScoreVal.style.color = "#f59e0b";
-            decisionVal.style.color = "#f59e0b";
+            topDecisionText.textContent = "THREAT DETECTED";
+            resultHeader.classList.add("block");
+            progressBar.classList.add("block");
+            decisionVal.classList.add("decision-block");
+        } else if (decision === "WARN" || decision === "WARNING" || score > 30) {
+            topDecisionText.textContent = "PROMPT WARNING";
+            resultHeader.classList.add("warn");
+            progressBar.classList.add("warn");
+            decisionVal.classList.add("decision-warn");
         } else {
-            statusBadge.textContent = "SAFE";
-            statusBadge.className = "status-badge safe";
-            progressBar.className = "progress-fill safe";
-            riskScoreVal.style.color = "#10b981";
-            decisionVal.style.color = "#38bdf8";
+            topDecisionText.textContent = "PROMPT SAFE";
+            resultHeader.classList.add("safe");
+            progressBar.classList.add("safe");
+            decisionVal.classList.add("decision-allow");
         }
 
         // Update labels
@@ -71,40 +105,54 @@ document.addEventListener("DOMContentLoaded", () => {
         reasonText.textContent = reason;
 
         if (prompt) {
-            scannedPromptText.textContent = prompt.length > 80 ? prompt.substring(0, 80) + "..." : prompt;
-        }
-
-        if (timestamp) {
-            const time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            scanTimestamp.textContent = time;
-        } else {
-            scanTimestamp.textContent = "Just now";
+            currentPromptFull = prompt;
+            if (prompt.length > 100) {
+                scannedPromptText.textContent = prompt.substring(0, 100) + "...";
+                viewFullPrompt.style.display = "block";
+                viewFullPrompt.textContent = "View full prompt";
+            } else {
+                scannedPromptText.textContent = prompt;
+                viewFullPrompt.style.display = "none";
+            }
         }
     }
+    
+    viewFullPrompt.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (viewFullPrompt.textContent === "View full prompt") {
+            scannedPromptText.textContent = currentPromptFull;
+            viewFullPrompt.textContent = "Show less";
+        } else {
+            scannedPromptText.textContent = currentPromptFull.substring(0, 100) + "...";
+            viewFullPrompt.textContent = "View full prompt";
+        }
+    });
 
     // 3. Load previous scan if available
     chrome.runtime.sendMessage({ type: "GET_LAST_SCAN" }, (response) => {
         if (response && response.last_scan) {
             const last = response.last_scan;
-            renderScanResult(last.prompt, last.result, last.timestamp);
+            renderScanResult(last.prompt, last.result);
         }
     });
 
     // 4. Handle "Scan Current Prompt" button
     scanBtn.addEventListener("click", () => {
         scanBtn.disabled = true;
-        scanBtn.innerHTML = "<span>⏳</span> Scanning...";
+        scanBtn.textContent = "Analyzing...";
 
         chrome.runtime.sendMessage({ type: "SCAN_CURRENT_TAB" }, (response) => {
             scanBtn.disabled = false;
-            scanBtn.innerHTML = "<span>🔍</span> Scan Current Prompt";
+            scanBtn.textContent = "Scan Current Prompt";
 
             if (!response || !response.success) {
-                scannedPromptText.textContent = response?.error || "No text found in input box or backend offline.";
+                emptyState.style.display = "block";
+                resultState.style.display = "none";
+                emptyState.innerHTML = `<h4>Error</h4><p>${response?.error || "No text found in input box or backend offline."}</p>`;
                 return;
             }
 
-            renderScanResult(response.text, response.data, new Date().toISOString());
+            renderScanResult(response.text, response.data);
         });
     });
 });

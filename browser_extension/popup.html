@@ -2,77 +2,102 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Prompt Injection Detector</title>
+    <title>Prompt Security Extension</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="app-card">
+    <div class="ext-container">
+        
         <!-- Header -->
-        <div class="header">
+        <header class="ext-header">
             <div class="brand">
-                <span class="shield-icon">🛡️</span>
-                <div>
-                    <h1 class="title">Prompt Sentinel</h1>
-                    <span class="subtitle">LLM Security Middleware</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+                <span class="brand-name">PROMPT SECURITY</span>
+            </div>
+            <div class="connection-status" id="backendStatus">
+                <span class="status-dot" id="headerStatusDot"></span>
+                <span class="status-text" id="headerStatusText">Connecting...</span>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="ext-main">
+
+            <!-- Default Empty State -->
+            <div id="emptyState" class="empty-state">
+                <h4>Ready to Scan</h4>
+                <p>Capture and analyze the current prompt for potential injection threats.</p>
+            </div>
+
+            <!-- Result State (Hidden initially) -->
+            <div id="resultState" class="result-state" style="display: none;">
+                
+                <div class="result-header" id="resultHeader">
+                    <h3 id="topDecisionText">PROMPT SAFE</h3>
                 </div>
-            </div>
-            <div id="statusBadge" class="status-badge safe">SAFE</div>
-        </div>
 
-        <!-- Risk Score Card -->
-        <div class="score-card">
-            <div class="score-header">
-                <span class="metric-label">Threat Risk Index</span>
-                <span id="riskScoreVal" class="score-number">0%</span>
-            </div>
-            <div class="progress-track">
-                <div id="progressBar" class="progress-fill safe" style="width: 4%;"></div>
-            </div>
-            <div class="score-scale">
-                <span>0 (Safe)</span>
-                <span>50 (Warning)</span>
-                <span>100 (Critical)</span>
-            </div>
-        </div>
+                <!-- Risk Score Area -->
+                <div class="risk-section">
+                    <div class="risk-value-row">
+                        <span id="riskScoreVal" class="risk-score-value">0%</span>
+                        <span class="risk-label-text">Risk Score</span>
+                    </div>
+                    <div class="risk-meter-track">
+                        <div id="progressBar" class="risk-meter-fill"></div>
+                    </div>
+                    <div class="risk-scale">
+                        <span>0 Safe</span>
+                        <span>50 Warning</span>
+                        <span>100 Critical</span>
+                    </div>
+                </div>
 
-        <!-- Threat Metadata Card -->
-        <div class="details-card">
-            <div class="meta-row">
-                <span class="meta-label">Attack Type:</span>
-                <span id="attackType" class="meta-val">None (Benign)</span>
-            </div>
-            <div class="meta-row">
-                <span class="meta-label">Security Decision:</span>
-                <span id="decisionVal" class="meta-val highlight">ALLOW</span>
-            </div>
-            <div class="reason-box">
-                <span class="reason-label">Analysis Summary:</span>
-                <p id="reasonText" class="reason-text">No active prompt injection patterns detected.</p>
-            </div>
-        </div>
+                <!-- Analysis Summary -->
+                <div class="summary-section">
+                    <h4 class="section-label">Analysis Summary</h4>
+                    <p id="reasonText" class="summary-text">No significant prompt injection detected.</p>
+                </div>
 
-        <!-- Last Scanned Snippet -->
-        <div class="snippet-card">
-            <div class="snippet-header">
-                <span>Captured Input</span>
-                <span id="scanTimestamp" class="timestamp">Ready</span>
+                <!-- Detection Info -->
+                <div class="info-section">
+                    <div class="info-row">
+                        <span class="info-label">Attack Type</span>
+                        <span id="attackType" class="info-value">Benign</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Security Decision</span>
+                        <span id="decisionVal" class="info-value decision-allow">ALLOW</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Detection</span>
+                        <span class="info-value">Rule-Based + DistilBERT</span>
+                    </div>
+                </div>
+                
+                <!-- Captured Prompt -->
+                <div class="prompt-section">
+                    <h4 class="section-label">Captured Prompt</h4>
+                    <div class="prompt-box">
+                        <span id="scannedPromptText" class="prompt-text"></span>
+                        <a href="#" id="viewFullPrompt" class="prompt-toggle" style="display:none;">View full prompt</a>
+                    </div>
+                </div>
+
             </div>
-            <p id="scannedPromptText" class="snippet-text">No prompt scanned yet. Click 'Scan Current Prompt' while on ChatGPT.</p>
-        </div>
 
-        <!-- Actions -->
-        <div class="actions">
-            <button id="scanBtn" class="btn-primary">
-                <span>🔍</span> Scan Current Prompt
-            </button>
-        </div>
+        </main>
 
-        <!-- Footer -->
-        <div class="footer">
-            <span id="backendStatus" class="backend-status online">● Backend Connected (Port 5000)</span>
-        </div>
+        <!-- Footer / Action -->
+        <footer class="ext-footer">
+            <button id="scanBtn" class="btn btn-primary">Scan Current Prompt</button>
+            <button id="retryBtn" class="btn btn-outline" style="display:none;">Retry Connection</button>
+        </footer>
+
     </div>
-
+    
     <script src="popup.js"></script>
 </body>
 </html>
