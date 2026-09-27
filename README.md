@@ -57,6 +57,41 @@ User Prompt
 
 ## 🚀 Quickstart & Demo Guide
 
+### 0. Fetch the Frozen Production Model (REQUIRED)
+
+The Layer 1 classifier weights are stored with **Git LFS**. A plain `git clone`
+leaves a 134-byte pointer file in their place, and the detection pipeline then
+silently degrades to **rule-only** scoring:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+Verify the frozen production model before running:
+
+```bash
+sha256sum experiments/distilbert/distilbert_model_augmented.pt
+# must be: a487e0be9008f2e55d44b4a025b2449cf77c94f53ed5582b3cebeee206e4a850
+```
+
+The application verifies this digest at startup and **refuses to load** any
+checkpoint that does not match. Check the live state at any time via
+`GET /health` → `pipeline_mode` (`FULL` or `RULE_ONLY`) and `model.load_status`.
+
+Set `REQUIRE_ML=1` to make the API **fail closed** (HTTP 503) rather than serve
+rule-only verdicts when the classifier is unavailable.
+
+| `load_status` | Meaning |
+|---|---|
+| `LOADED_VERIFIED` | Frozen weights loaded and digest-verified |
+| `POINTER_NOT_FETCHED` | Git LFS pointer present; run `git lfs pull` |
+| `POINTER_WRONG_MODEL` | Pointer references a model other than the approved one |
+| `HASH_MISMATCH` | On-disk weights do not match the frozen digest; refused |
+| `TORCH_UNAVAILABLE` | `torch` / `transformers` not installed |
+| `TOKENIZER_UNAVAILABLE` | Weights verified, but the tokenizer could not be obtained |
+| `LOAD_ERROR` | Verified weights failed to initialise |
+
 ### 1. Launch Central Security Backend
 ```powershell
 # From the project root

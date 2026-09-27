@@ -32,7 +32,12 @@ class TestDualLayerMiddleware(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = json.loads(res.data)
         self.assertEqual(data["status"], "ok")
-        self.assertTrue(data["layer1_ml_loaded"])
+        # Slice 0 re-baseline: see test_detection.test_01_health_check.
+        self.assertEqual(
+            data["layer1_ml_loaded"],
+            data["model"]["load_status"] == "LOADED_VERIFIED",
+        )
+        self.assertIn(data["pipeline_mode"], ("FULL", "RULE_ONLY"))
         self.assertTrue(data["layer1_rule_engine"])
         self.assertTrue(data["layer2_response_security"])
 

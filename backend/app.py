@@ -59,6 +59,25 @@ prompt_engine = PromptSecurityEngine()
 response_engine = ResponseSecurityEngine()
 llm_client = LLMClient()
 
+# Fail-closed switch. When REQUIRE_ML is enabled, the API refuses to serve
+# verdicts while the frozen ML classifier is unavailable, rather than silently
+# degrading to rule-only scoring.
+REQUIRE_ML = os.getenv("REQUIRE_ML", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _ml_unavailable_response():
+    """503 payload used when REQUIRE_ML is set and the classifier is degraded."""
+    status = prompt_engine.model_status()
+    return jsonify({
+        "error": "ML detection layer unavailable; refusing to serve a degraded verdict.",
+        "require_ml": True,
+        "pipeline_mode": status["pipeline_mode"],
+        "load_status": status["load_status"],
+        "load_detail": status["load_detail"],
+        "remediation": "Fetch the frozen production weights (git lfs install && git lfs pull), or unset REQUIRE_ML to allow rule-only operation."
+    }), 503
+
+
 # Global session security state (for demo lockout)
 SESSION_STATE = {
     "is_locked": False,
@@ -72,6 +91,7 @@ SESSION_STATE = {
 # -------------------------------------------------------------
 @app.route("/health", methods=["GET"])
 def health():
+    model_status = prompt_engine.model_status()
     return jsonify({
         "status": "ok",
         "service": "prompt-security-api",
@@ -79,7 +99,12 @@ def health():
         "layer1_ml_loaded": prompt_engine.ml_detector.is_loaded,
         "layer1_rule_engine": True,
         "layer2_response_security": True,
-        "llm_provider": llm_client.provider
+        "llm_provider": llm_client.provider,
+        # Frozen-model transparency: never let a degraded pipeline look healthy.
+        "pipeline_mode": model_status["pipeline_mode"],
+        "degraded": model_status["degraded"],
+        "require_ml": REQUIRE_ML,
+        "model": model_status
     }), 200
 
 
@@ -88,6 +113,9 @@ def health():
 # -------------------------------------------------------------
 @app.route("/detect", methods=["POST"])
 def detect():
+    if REQUIRE_ML and not prompt_engine.ml_detector.is_loaded:
+        return _ml_unavailable_response()
+
     data = request.get_json(silent=True)
     if not data or "prompt" not in data:
         return jsonify({"error": "Missing 'prompt' parameter in JSON payload."}), 400
@@ -176,6 +204,9 @@ def secure_prompt():
     4. Layer 2: Response Security Validation & Leakage Detection.
     5. Output Gateway: Return sanitized safe output.
     """
+    if REQUIRE_ML and not prompt_engine.ml_detector.is_loaded:
+        return _ml_unavailable_response()
+
     data = request.get_json(silent=True)
     if not data or "prompt" not in data:
         return jsonify({"error": "Missing 'prompt' parameter in JSON payload."}), 400
@@ -435,7 +466,11 @@ def sensitive_resource():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"[*] Starting Dual-Layer Prompt Security API on port {port}...")
-    print(f"[*] Layer 1 ML Status: {'READY' if prompt_engine.ml_detector.is_loaded else 'NOT LOADED'}")
+    _status = prompt_engine.model_status()
+    print(f"[*] Layer 1 ML Status: {_status['load_status']} | Pipeline Mode: {_status['pipeline_mode']}")
+    if _status["degraded"]:
+        print(f"[!] DEGRADED: {_status['load_detail']}")
+        print(f"[!] Verdicts are rule-only. Set REQUIRE_ML=1 to refuse service instead.")
     print(f"[*] Layer 2 Response Security: ACTIVE")
     print(f"[*] Web Interface Available at: http://localhost:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
