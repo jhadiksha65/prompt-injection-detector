@@ -24,3 +24,11 @@ ml/processed/
 *.joblib
 !experiments/distilbert/distilbert_model.pt
 !experiments/distilbert/distilbert_model_improved.pt
+!experiments/distilbert/distilbert_model_augmented.pt
+
+# Scratch, experimental patches, and logs
+scratch/
+data/final/*_patched.csv
+experiments/distilbert/*_patched.json
+experiments/distilbert/*_patched.pt
+*.log

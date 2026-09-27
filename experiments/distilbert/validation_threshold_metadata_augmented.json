@@ -1,0 +1,21 @@
+{
+  "chosen_threshold": 0.38,
+  "validation_metrics": {
+    "threshold": 0.38,
+    "precision": 0.9861,
+    "recall": 0.9947,
+    "f1": 0.9904,
+    "fpr": 0.014,
+    "fnr": 0.0053,
+    "tn": 1479,
+    "fp": 21,
+    "fn": 8,
+    "tp": 1492,
+    "meets_constraints": true
+  },
+  "best_epoch": 2,
+  "best_val_loss": 0.029598999211497782,
+  "training_samples": 15500,
+  "validation_samples": 3000,
+  "max_len": 256
+}

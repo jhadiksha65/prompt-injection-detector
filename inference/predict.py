@@ -13,16 +13,43 @@ except FileNotFoundError:
     else:
         os.chdir("/")
 
+import json
 import torch
 import torch.nn as nn
 from transformers import DistilBertTokenizer, AutoModelForSequenceClassification
 
+# Add repo root to path for imports
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from backend.prompt_security.preprocessing.token_preprocessing import encode_prompt_head_tail, DEFAULT_MAX_LEN
 
 # Configuration
 MODEL_CHECKPOINT = "distilbert-base-uncased"
-MODEL_PATH = "experiments/distilbert/distilbert_model_improved.pt" if os.path.exists("experiments/distilbert/distilbert_model_improved.pt") else "experiments/distilbert/distilbert_model.pt"
-THRESHOLD = 0.50
-MAX_LEN = 128
+AUGMENTED_PATH = os.path.join(ROOT_DIR, "experiments", "distilbert", "distilbert_model_augmented.pt")
+IMPROVED_PATH = os.path.join(ROOT_DIR, "experiments", "distilbert", "distilbert_model_improved.pt")
+BASE_PATH = os.path.join(ROOT_DIR, "experiments", "distilbert", "distilbert_model.pt")
+
+if os.path.exists(AUGMENTED_PATH):
+    MODEL_PATH = AUGMENTED_PATH
+elif os.path.exists(IMPROVED_PATH):
+    MODEL_PATH = IMPROVED_PATH
+else:
+    MODEL_PATH = BASE_PATH
+
+# Threshold & sequence length configuration
+THRESHOLD = 0.38
+MAX_LEN = DEFAULT_MAX_LEN  # 256
+META_PATH = os.path.join(ROOT_DIR, "experiments", "distilbert", "validation_threshold_metadata_augmented.json")
+if os.path.exists(META_PATH):
+    try:
+        with open(META_PATH, "r") as f:
+            meta = json.load(f)
+            THRESHOLD = float(meta.get("chosen_threshold", 0.38))
+            MAX_LEN = int(meta.get("max_len", DEFAULT_MAX_LEN))
+    except Exception as e:
+        print(f"[predict.py] Notice: Could not read metadata {META_PATH} ({e}), defaulting threshold to {THRESHOLD}")
 
 # Choose Device
 if torch.backends.mps.is_available():
@@ -60,18 +87,16 @@ def predict(prompt: str, tokenizer, model) -> dict:
     """
     cleaned_prompt = str(prompt).strip()
     
-    # Tokenize input
-    inputs = tokenizer(
-        cleaned_prompt,
-        add_special_tokens=True,
-        max_length=MAX_LEN,
-        padding="max_length",
-        truncation=True,
+    # Tokenize input using verified head+tail preservation
+    encoding = encode_prompt_head_tail(
+        text=cleaned_prompt,
+        tokenizer=tokenizer,
+        max_len=MAX_LEN,
         return_tensors="pt"
     )
     
-    input_ids = inputs["input_ids"].to(DEVICE)
-    attention_mask = inputs["attention_mask"].to(DEVICE)
+    input_ids = encoding["input_ids"].unsqueeze(0).to(DEVICE)
+    attention_mask = encoding["attention_mask"].unsqueeze(0).to(DEVICE)
     
     with torch.no_grad():
         outputs = model(input_ids=input_ids, attention_mask=attention_mask)
