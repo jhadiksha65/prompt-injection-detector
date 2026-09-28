@@ -147,10 +147,14 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('resultContainer').style.display = 'none';
         document.getElementById('errorState').style.display = 'none';
         document.getElementById('loadingState').style.display = 'block';
+        hideBlockDialog();
         analyzeBtn.disabled = true;
 
         try {
-            const res = await fetch('/detect', {
+            // Full dual-layer pipeline: Layer 1 -> LLM -> Layer 2 -> final response.
+            // (Previously called /detect, which only ran Layer 1 and never
+            // invoked the LLM or Layer 2 response validation.)
+            const res = await fetch('/secure-prompt', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
@@ -176,32 +180,68 @@ document.addEventListener('DOMContentLoaded', () => {
         // Expander Reset
         expanderBtn.classList.remove('open');
         expanderContent.style.display = 'none';
-        document.getElementById('analyzedPromptText').textContent = promptText;
 
-        const decision = data.decision || 'UNKNOWN';
-        const riskLevel = data.risk_level || 'UNKNOWN';
-        const riskScore = parseFloat(data.risk_score || 0);
-        const classification = data.classification || data.attack_type || 'BENIGN';
+        // /secure-prompt nests the Layer 1 verdict/explanation under "layer1"
+        // (same schema previously returned flat by /detect). Layer 2 result
+        // and the overall pipeline outcome are new, additional fields.
+        const layer1 = data.layer1 || data;
+        const layer2 = data.layer2 || {};
+        const overallDecision = data.final_decision || layer1.decision || 'UNKNOWN';
 
-        const ruleResult = data.rule_result || {};
-        const mlResult = data.ml_result || {};
-        
+        const riskLevel = layer1.risk_level || 'UNKNOWN';
+        const riskScore = parseFloat(layer1.risk_score || 0);
+        const classification = layer1.classification || layer1.attack_type || 'BENIGN';
+
+        const ruleResult = layer1.rule_result || {};
+        const mlResult = layer1.ml_result || {};
+        const layer2Decision = layer2.decision || 'NOT_EXECUTED';
+
+        // Layer 1 HIGH/CRITICAL block: use only the backend's own decision and
+        // risk_level, never a client-side security judgement.
+        const HIGH_CRITICAL_LEVELS = ['HIGH', 'CRITICAL'];
+        const isLayer1HighCriticalBlock = (
+            data.llm_called === false &&
+            layer1.decision === 'BLOCK' &&
+            HIGH_CRITICAL_LEVELS.includes(riskLevel)
+        );
+
+        const analyzedPromptExpander = document.getElementById('analyzedPromptExpander');
+        if (isLayer1HighCriticalBlock) {
+            // Don't display the blocked prompt unnecessarily: the expander
+            // is hidden entirely and the prompt text is never written to the DOM.
+            if (analyzedPromptExpander) analyzedPromptExpander.style.display = 'none';
+            document.getElementById('analyzedPromptText').textContent = '';
+            showBlockDialog(layer1, riskLevel);
+        } else {
+            if (analyzedPromptExpander) analyzedPromptExpander.style.display = '';
+            document.getElementById('analyzedPromptText').textContent = promptText;
+            hideBlockDialog();
+        }
+
         // Populate Top Card
         const securityCard = document.getElementById('securityCard');
         const scDecisionBadge = document.getElementById('scDecisionBadge');
         const scIcon = document.getElementById('scIcon');
         const scDecisionText = document.getElementById('scDecisionText');
-        
+
         securityCard.className = 'security-card';
-        
-        if (decision === 'ALLOW') {
+
+        if (overallDecision === 'ALLOW') {
             securityCard.classList.add('safe');
             scIcon.textContent = '✓';
             scDecisionText.textContent = 'SAFE';
-        } else if (decision === 'WARN' || riskLevel === 'WARNING' || riskLevel === 'MEDIUM') {
+        } else if (overallDecision === 'WARNING' || riskLevel === 'WARNING' || riskLevel === 'MEDIUM') {
             securityCard.classList.add('warning');
             scIcon.textContent = '!';
             scDecisionText.textContent = 'WARNING';
+        } else if (overallDecision === 'MASK') {
+            securityCard.classList.add('warning');
+            scIcon.textContent = '!';
+            scDecisionText.textContent = 'RESPONSE SANITIZED';
+        } else if (overallDecision === 'ERROR') {
+            securityCard.classList.add('block');
+            scIcon.textContent = '✕';
+            scDecisionText.textContent = 'PROVIDER ERROR';
         } else {
             securityCard.classList.add('block');
             scIcon.textContent = '✕';
@@ -215,14 +255,64 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Metrics
         document.getElementById('resRiskLevel').textContent = riskLevel;
-        document.getElementById('resDecision').textContent = decision;
+        document.getElementById('resDecision').textContent = layer1.decision || overallDecision;
         document.getElementById('resClassification').textContent = classification;
 
         // Breakdown
         document.getElementById('bdRule').textContent = ruleResult.rule_triggered ? 'DETECTED' : 'CLEAN';
         document.getElementById('bdNLP').textContent = mlResult.is_malicious ? 'DETECTED' : 'CLEAN';
         document.getElementById('bdRisk').textContent = riskLevel;
-        document.getElementById('bdDecision').textContent = decision;
+        document.getElementById('bdLayer2').textContent = layer2Decision;
+        document.getElementById('bdDecision').textContent = overallDecision;
+
+        // Final system response (post Layer 2 sanitization/blocking)
+        const responseSection = document.getElementById('responseSection');
+        const resResponseText = document.getElementById('resResponseText');
+        if (resResponseText) {
+            if (typeof data.response === 'string' && data.response.length > 0) {
+                resResponseText.textContent = data.response;
+                if (responseSection) responseSection.style.display = '';
+            } else if (responseSection) {
+                responseSection.style.display = 'none';
+            }
+        }
+    }
+
+    function showBlockDialog(layer1, riskLevel) {
+        const overlay = document.getElementById('blockDialogOverlay');
+        if (!overlay) return;
+
+        // Populate strictly from the backend's own verdict/explanation data.
+        document.getElementById('blockDialogRiskLevel').textContent = riskLevel || 'UNKNOWN';
+        document.getElementById('blockDialogAttackType').textContent =
+            layer1.attack_type || layer1.classification || 'Prompt Injection';
+
+        const reasonEl = document.getElementById('blockDialogReason');
+        reasonEl.textContent = layer1.reason ? layer1.reason : '';
+
+        overlay.style.display = 'flex';
+    }
+
+    function hideBlockDialog() {
+        const overlay = document.getElementById('blockDialogOverlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    const blockDialogRetryBtn = document.getElementById('blockDialogRetryBtn');
+    if (blockDialogRetryBtn) {
+        blockDialogRetryBtn.addEventListener('click', () => {
+            // Honest, non-security action: simply clears the way for the user
+            // to type a new prompt. No fake authentication or verification step.
+            hideBlockDialog();
+            if (promptInput) {
+                promptInput.value = '';
+                promptInput.focus();
+                if (charCount) {
+                    charCount.textContent = `0 / ${MAX_CHARS} characters`;
+                }
+            }
+            document.getElementById('resultContainer').style.display = 'none';
+        });
     }
 
     function renderEmptyHistory() {

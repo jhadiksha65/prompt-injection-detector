@@ -1,21 +1,26 @@
 /**
  * popup.js
- * Controls the extension popup UI, handles on-demand scans,
- * and synchronizes with background service worker and local storage.
+ * Controls the extension popup UI, handles on-demand scans, and
+ * synchronizes with background service worker and local storage.
+ *
+ * Uses the same verdict contract as the web UI and the content script:
+ * the backend's /secure-prompt response, with the Layer 1 verdict nested
+ * under `layer1`, Layer 2 under `layer2`, and the combined outcome in
+ * `final_decision`.
  */
 
 document.addEventListener("DOMContentLoaded", () => {
     const scanBtn = document.getElementById("scanBtn");
     const retryBtn = document.getElementById("retryBtn");
-    
+
     // Header
     const headerStatusDot = document.getElementById("headerStatusDot");
     const headerStatusText = document.getElementById("headerStatusText");
-    
+
     // States
     const emptyState = document.getElementById("emptyState");
     const resultState = document.getElementById("resultState");
-    
+
     // Result elements
     const resultHeader = document.getElementById("resultHeader");
     const topDecisionText = document.getElementById("topDecisionText");
@@ -24,53 +29,76 @@ document.addEventListener("DOMContentLoaded", () => {
     const reasonText = document.getElementById("reasonText");
     const attackType = document.getElementById("attackType");
     const decisionVal = document.getElementById("decisionVal");
-    
+
     // Prompt
     const scannedPromptText = document.getElementById("scannedPromptText");
     const viewFullPrompt = document.getElementById("viewFullPrompt");
 
-    let currentPromptFull = "";
+    // Settings
+    const settingsToggle = document.getElementById("settingsToggle");
+    const settingsPanel = document.getElementById("settingsPanel");
+    const apiUrlInput = document.getElementById("apiUrlInput");
+    const apiUrlSaveBtn = document.getElementById("apiUrlSaveBtn");
+    const apiUrlStatus = document.getElementById("apiUrlStatus");
 
-    // 1. Check Backend Connectivity
-    function checkConnection() {
-        fetch("http://localhost:5000/health")
-            .then((res) => {
-                if (res.ok) {
-                    headerStatusText.textContent = "Connected";
-                    headerStatusDot.className = "status-dot online";
-                    scanBtn.style.display = "block";
-                    retryBtn.style.display = "none";
-                } else {
-                    throw new Error("Status " + res.status);
-                }
-            })
-            .catch(() => {
-                headerStatusText.textContent = "Backend Offline";
-                headerStatusDot.className = "status-dot offline";
-                scanBtn.style.display = "none";
-                retryBtn.style.display = "block";
-            });
+    let currentPromptFull = "";
+    let currentPromptIsFull = false;
+
+    function setEmptyStateMessage(title, message) {
+        emptyState.textContent = "";
+        const h4 = document.createElement("h4");
+        h4.textContent = title;
+        const p = document.createElement("p");
+        p.textContent = message; // never innerHTML: message may echo backend text
+        emptyState.appendChild(h4);
+        emptyState.appendChild(p);
     }
-    
+
+    // 1. Check Backend Connectivity (configurable host, not hardcoded)
+    function checkConnection() {
+        getApiBaseUrl().then((apiBaseUrl) => {
+            fetch(`${apiBaseUrl}/health`)
+                .then((res) => {
+                    if (res.ok) {
+                        headerStatusText.textContent = "Connected";
+                        headerStatusDot.className = "status-dot online";
+                        scanBtn.style.display = "block";
+                        retryBtn.style.display = "none";
+                    } else {
+                        throw new Error("Status " + res.status);
+                    }
+                })
+                .catch(() => {
+                    headerStatusText.textContent = "Backend Offline";
+                    headerStatusDot.className = "status-dot offline";
+                    scanBtn.style.display = "none";
+                    retryBtn.style.display = "block";
+                });
+        });
+    }
+
     checkConnection();
-    
+
     retryBtn.addEventListener("click", () => {
         headerStatusText.textContent = "Connecting...";
         headerStatusDot.className = "status-dot";
         checkConnection();
     });
 
-    // 2. Render scan record into UI
-    function renderScanResult(prompt, result) {
-        if (!result) return;
-        
+    // 2. Render scan record into UI, reading the /secure-prompt verdict
+    //    contract (layer1 / layer2 / final_decision), same as the web UI.
+    function renderScanResult(prompt, backendResult, isFullPrompt) {
+        if (!backendResult) return;
+
         emptyState.style.display = "none";
         resultState.style.display = "block";
 
-        const score = result.risk_score !== undefined ? result.risk_score : 0;
-        const decision = result.decision || "ALLOW";
-        const attack = result.attack_type || "Benign";
-        const reason = result.reason || "Analysis complete.";
+        const layer1 = backendResult.layer1 || backendResult;
+        const overallDecision = backendResult.final_decision || layer1.decision || "UNKNOWN";
+
+        const score = layer1.risk_score !== undefined ? layer1.risk_score : 0;
+        const attack = layer1.attack_type || "Benign";
+        const reason = layer1.reason || "Analysis complete.";
 
         // Update score & progress
         riskScoreVal.textContent = `${score}%`;
@@ -81,13 +109,13 @@ document.addEventListener("DOMContentLoaded", () => {
         progressBar.className = "risk-meter-fill";
         decisionVal.className = "info-value";
 
-        // Update state styling based on decision/risk
-        if (decision === "BLOCK" || score >= 80) {
+        // Update state styling based on the combined pipeline decision.
+        if (overallDecision === "BLOCK") {
             topDecisionText.textContent = "THREAT DETECTED";
             resultHeader.classList.add("block");
             progressBar.classList.add("block");
             decisionVal.classList.add("decision-block");
-        } else if (decision === "WARN" || decision === "WARNING" || score > 30) {
+        } else if (["WARNING", "MASK", "ERROR"].includes(overallDecision)) {
             topDecisionText.textContent = "PROMPT WARNING";
             resultHeader.classList.add("warn");
             progressBar.classList.add("warn");
@@ -99,26 +127,32 @@ document.addEventListener("DOMContentLoaded", () => {
             decisionVal.classList.add("decision-allow");
         }
 
-        // Update labels
+        // All dynamic text is set via textContent only — never innerHTML —
+        // since these values ultimately derive from user-supplied prompt
+        // content processed by the backend.
         attackType.textContent = attack;
-        decisionVal.textContent = decision;
+        decisionVal.textContent = overallDecision;
         reasonText.textContent = reason;
 
         if (prompt) {
             currentPromptFull = prompt;
-            if (prompt.length > 100) {
+            currentPromptIsFull = !!isFullPrompt;
+            if (isFullPrompt && prompt.length > 100) {
                 scannedPromptText.textContent = prompt.substring(0, 100) + "...";
                 viewFullPrompt.style.display = "block";
                 viewFullPrompt.textContent = "View full prompt";
             } else {
+                // Either short enough to show in full, or this is only a
+                // stored snippet (nothing more to reveal) — no toggle needed.
                 scannedPromptText.textContent = prompt;
                 viewFullPrompt.style.display = "none";
             }
         }
     }
-    
+
     viewFullPrompt.addEventListener("click", (e) => {
         e.preventDefault();
+        if (!currentPromptIsFull) return;
         if (viewFullPrompt.textContent === "View full prompt") {
             scannedPromptText.textContent = currentPromptFull;
             viewFullPrompt.textContent = "Show less";
@@ -128,11 +162,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // 3. Load previous scan if available
+    // 3. Load previous scan summary if available. Only a truncated snippet
+    //    is ever persisted (see background.js recordLastScan) — never the
+    //    full prompt — so there is nothing further to reveal here.
     chrome.runtime.sendMessage({ type: "GET_LAST_SCAN" }, (response) => {
         if (response && response.last_scan) {
             const last = response.last_scan;
-            renderScanResult(last.prompt, last.result);
+            renderScanResult(last.prompt_snippet, last.result, false);
         }
     });
 
@@ -148,11 +184,62 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!response || !response.success) {
                 emptyState.style.display = "block";
                 resultState.style.display = "none";
-                emptyState.innerHTML = `<h4>Error</h4><p>${response?.error || "No text found in input box or backend offline."}</p>`;
+                setEmptyStateMessage(
+                    "Error",
+                    response?.error || "No text found in input box or backend offline."
+                );
                 return;
             }
 
-            renderScanResult(response.text, response.data);
+            // response.text is only ever held in memory for this popup
+            // session (never persisted) — see background.js.
+            renderScanResult(response.text, response.data, true);
         });
     });
+
+    // 5. Settings: configurable backend API host (never hardcoded-only).
+    if (settingsToggle && settingsPanel) {
+        settingsToggle.addEventListener("click", () => {
+            const isOpen = settingsPanel.style.display === "block";
+            settingsPanel.style.display = isOpen ? "none" : "block";
+            if (!isOpen) {
+                getApiBaseUrl().then((url) => {
+                    apiUrlInput.value = url;
+                });
+            }
+        });
+    }
+
+    if (apiUrlSaveBtn) {
+        apiUrlSaveBtn.addEventListener("click", () => {
+            const newUrl = apiUrlInput.value.trim();
+            apiUrlStatus.textContent = "";
+
+            setApiBaseUrl(newUrl).then((success) => {
+                if (!success) {
+                    apiUrlStatus.textContent = "Invalid URL. Use http(s)://host:port.";
+                    apiUrlStatus.style.color = "#ef4444";
+                    return;
+                }
+
+                // Manifest V3: an arbitrary configured production host needs
+                // its host permission granted at runtime (optional_host_permissions
+                // in manifest.json) before the service worker can fetch it.
+                try {
+                    const origin = new URL(newUrl).origin + "/*";
+                    chrome.permissions.request({ origins: [origin] }, (granted) => {
+                        apiUrlStatus.style.color = granted ? "#10b981" : "#f59e0b";
+                        apiUrlStatus.textContent = granted
+                            ? "Saved. Backend host updated."
+                            : "Saved, but permission for this host was not granted — requests may fail.";
+                        checkConnection();
+                    });
+                } catch (err) {
+                    apiUrlStatus.textContent = "Saved.";
+                    apiUrlStatus.style.color = "#10b981";
+                    checkConnection();
+                }
+            });
+        });
+    }
 });

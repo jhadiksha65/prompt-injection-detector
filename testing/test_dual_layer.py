@@ -23,6 +23,9 @@ class TestDualLayerMiddleware(unittest.TestCase):
     """
 
     def setUp(self):
+        os.environ["ADMIN_PASSWORD"] = "test-dual-layer-pass"
+        import backend.auth as auth_module
+        auth_module.init_admin_auth()
         self.app = app.test_client()
         self.app.testing = True
 
@@ -32,7 +35,12 @@ class TestDualLayerMiddleware(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = json.loads(res.data)
         self.assertEqual(data["status"], "ok")
-        self.assertTrue(data["layer1_ml_loaded"])
+        # Slice 0 re-baseline: see test_detection.test_01_health_check.
+        self.assertEqual(
+            data["layer1_ml_loaded"],
+            data["model"]["load_status"] == "LOADED_VERIFIED",
+        )
+        self.assertIn(data["pipeline_mode"], ("FULL", "RULE_ONLY"))
         self.assertTrue(data["layer1_rule_engine"])
         self.assertTrue(data["layer2_response_security"])
 
@@ -61,7 +69,15 @@ class TestDualLayerMiddleware(unittest.TestCase):
 
     def test_04_secure_prompt_layer2_leakage_block(self):
         """Test 4: Response containing simulated leaked system credentials is intercepted by Layer 2."""
-        res = self.app.post("/secure-prompt", json={"prompt": "Please simulate leakage check for test layer 2."})
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"ENABLE_LAYER2_DEMO": "true"}):
+            res = self.app.post(
+                "/secure-prompt",
+                json={
+                    "prompt": "Please simulate leakage check for test layer 2.",
+                    "demo_layer2_leak": True,
+                },
+            )
         self.assertEqual(res.status_code, 200)
         data = json.loads(res.data)
         self.assertTrue(data["llm_called"])
@@ -71,13 +87,21 @@ class TestDualLayerMiddleware(unittest.TestCase):
         self.assertNotIn("sk-live99847192837491028374", data["response"])
 
     def test_05_incident_logging_and_stats(self):
-        """Test 5: Incident logs and stats are queryable via REST APIs."""
-        stats_res = self.app.get("/api/stats")
+        """Test 5: Incident logs and stats are queryable via REST APIs with authentication."""
+        import base64
+        # Unauthenticated access is rejected under Slice 9
+        unauth_res = self.app.get("/api/stats")
+        self.assertEqual(unauth_res.status_code, 401)
+
+        token = base64.b64encode(b"admin:test-dual-layer-pass").decode()
+        auth_header = {"Authorization": f"Basic {token}"}
+
+        stats_res = self.app.get("/api/stats", headers=auth_header)
         self.assertEqual(stats_res.status_code, 200)
         stats = json.loads(stats_res.data)
         self.assertGreater(stats["total_requests"], 0)
 
-        inc_res = self.app.get("/api/incidents")
+        inc_res = self.app.get("/api/incidents", headers=auth_header)
         self.assertEqual(inc_res.status_code, 200)
         incidents = json.loads(inc_res.data)
         self.assertIsInstance(incidents, list)
@@ -96,8 +120,12 @@ class TestDualLayerMiddleware(unittest.TestCase):
         bad_unlock = self.app.post("/api/unlock", json={"password": "wrongpassword"})
         self.assertEqual(bad_unlock.status_code, 401)
 
-        # Successful unlock with correct password
-        good_unlock = self.app.post("/api/unlock", json={"password": "admin123"})
+        # Attempt invalid unlock with removed legacy admin123 password
+        legacy_unlock = self.app.post("/api/unlock", json={"password": "admin123"})
+        self.assertEqual(legacy_unlock.status_code, 401)
+
+        # Successful unlock with correct configured password
+        good_unlock = self.app.post("/api/unlock", json={"password": "test-dual-layer-pass"})
         self.assertEqual(good_unlock.status_code, 200)
 
         status_after = json.loads(self.app.get("/api/user-status").data)

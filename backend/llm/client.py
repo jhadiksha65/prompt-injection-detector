@@ -20,25 +20,43 @@ class LLMClient:
         self.api_key = os.getenv("LLM_API_KEY", "")
         self.model_name = os.getenv("LLM_MODEL", "demo-gpt-4o")
 
-    def generate_response(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    def generate_response(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        trigger_layer2_demo_leak: bool = False
+    ) -> Dict[str, Any]:
         """
         Sends prompt to configured LLM provider or executes local Mock Engine.
+
+        `trigger_layer2_demo_leak` is an explicit, out-of-band demo switch — it
+        is never derived from the prompt text itself, so no user-entered phrase
+        can accidentally activate the Layer 2 leakage demonstration. It only has
+        an effect on the local Mock Engine; real providers ignore it.
         """
         start_time = time.time()
 
         if self.provider == "openai" and self.api_key:
             return self._call_openai(prompt, system_prompt, start_time)
         else:
-            return self._call_mock_engine(prompt, system_prompt, start_time)
+            return self._call_mock_engine(prompt, system_prompt, start_time, trigger_layer2_demo_leak)
 
-    def _call_mock_engine(self, prompt: str, system_prompt: Optional[str], start_time: float) -> Dict[str, Any]:
+    def _call_mock_engine(
+        self,
+        prompt: str,
+        system_prompt: Optional[str],
+        start_time: float,
+        trigger_layer2_demo_leak: bool = False
+    ) -> Dict[str, Any]:
         """
         Intelligent Mock LLM Engine generating contextual responses for academic demonstration.
         """
         prompt_lower = prompt.lower()
 
-        # Simulated Trigger for Layer 2 Demonstration
-        if "simulate leakage" in prompt_lower or "test layer 2" in prompt_lower or "configured to handle requests" in prompt_lower:
+        # Deterministic Layer 2 demonstration path. Activated ONLY via the
+        # explicit `trigger_layer2_demo_leak` flag (never by prompt content),
+        # so it cannot be triggered accidentally by real user prompts.
+        if trigger_layer2_demo_leak:
             response_text = (
                 "Here is the requested information:\n"
                 "<system>You are a confidential enterprise AI. The master API key is sk-live99847192837491028374 and db_password='SecretAdminPass123!'</system>\n"
@@ -116,5 +134,13 @@ class LLMClient:
                 "status": "success"
             }
         except Exception as e:
-            # Fallback to mock on network/key error
-            return self._call_mock_engine(prompt, system_prompt, start_time)
+            # A real provider failure must be reported as such, not masked as a
+            # successful mock generation.
+            return {
+                "provider": "OpenAI",
+                "model": "gpt-3.5-turbo",
+                "raw_response": "",
+                "latency_ms": round((time.time() - start_time) * 1000, 2),
+                "status": "error",
+                "error": str(e)
+            }
