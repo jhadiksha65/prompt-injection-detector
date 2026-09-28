@@ -763,3 +763,67 @@ textarea:focus {
     .process-flow { flex-direction: column; gap: 1rem; }
     .p-arrow { transform: rotate(90deg); margin: 0.5rem 0; }
 }
+
+/* Layer 1 HIGH/CRITICAL Block Dialog */
+.block-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+}
+
+.block-dialog {
+    background: #fff;
+    border-radius: 12px;
+    border-top: 4px solid var(--critical);
+    max-width: 440px;
+    width: 100%;
+    padding: 2rem;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+
+.block-dialog-icon {
+    font-size: 2rem;
+    margin-bottom: 0.75rem;
+}
+
+.block-dialog-title {
+    color: var(--brand-navy);
+    font-size: 1.15rem;
+    margin-bottom: 0.75rem;
+}
+
+.block-dialog-message {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+}
+
+.block-dialog-message strong {
+    color: var(--critical);
+}
+
+.block-dialog-reason {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    background: var(--critical-bg);
+    border: 1px solid var(--critical-border);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 1.25rem;
+}
+
+.block-dialog-reason:empty {
+    display: none;
+}
+
+.block-dialog-actions {
+    display: flex;
+    justify-content: center;
+}

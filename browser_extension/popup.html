@@ -21,7 +21,18 @@
                 <span class="status-dot" id="headerStatusDot"></span>
                 <span class="status-text" id="headerStatusText">Connecting...</span>
             </div>
+            <button id="settingsToggle" class="btn-icon" title="Backend Settings" type="button">⚙️</button>
         </header>
+
+        <!-- Settings Panel (hidden by default) -->
+        <div id="settingsPanel" class="settings-panel" style="display:none;">
+            <label for="apiUrlInput" class="section-label">Security Backend URL</label>
+            <div class="settings-row">
+                <input id="apiUrlInput" type="text" placeholder="http://localhost:5000" />
+                <button id="apiUrlSaveBtn" class="btn btn-outline" type="button">Save</button>
+            </div>
+            <p id="apiUrlStatus" class="settings-status"></p>
+        </div>
 
         <!-- Main Content Area -->
         <main class="ext-main">
@@ -98,6 +109,7 @@
 
     </div>
     
+    <script src="config.js"></script>
     <script src="popup.js"></script>
 </body>
 </html>

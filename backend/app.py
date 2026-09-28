@@ -45,16 +45,26 @@ load_env()
 from backend.prompt_security.decision_engine import PromptSecurityEngine
 from backend.response_security.decision_engine import ResponseSecurityEngine
 from backend.llm.client import LLMClient
+from backend.attachments.handler import extract_attachment_text, AttachmentError
 from backend.database.db import init_db, log_incident, get_all_incidents, get_security_stats
 from backend.alerts.email_alert import send_security_email
 from backend.alerts.sms_alert import send_security_sms
+from backend.auth import init_admin_auth, verify_admin_credentials, require_admin_auth, ADMIN_USERNAME
 
 # Initialize Flask
 app = Flask(__name__, static_folder="../frontend/static")
 CORS(app)
 
+# Hard request-size ceiling (defense in depth ahead of attachment-specific
+# validation): a little above the attachment size limit to allow for the
+# rest of the multipart/form payload.
+app.config["MAX_CONTENT_LENGTH"] = int(
+    os.getenv("ATTACHMENT_MAX_BYTES", 5 * 1024 * 1024)
+) + (1 * 1024 * 1024)
+
 # Initialize Security & Database Engines
 init_db()
+init_admin_auth()
 prompt_engine = PromptSecurityEngine()
 response_engine = ResponseSecurityEngine()
 llm_client = LLMClient()
@@ -207,12 +217,43 @@ def secure_prompt():
     if REQUIRE_ML and not prompt_engine.ml_detector.is_loaded:
         return _ml_unavailable_response()
 
-    data = request.get_json(silent=True)
-    if not data or "prompt" not in data:
-        return jsonify({"error": "Missing 'prompt' parameter in JSON payload."}), 400
+    is_multipart_request = bool(request.content_type) and request.content_type.startswith("multipart/form-data")
 
-    prompt_text = str(data.get("prompt", "")).strip()
+    if is_multipart_request:
+        # Attachment-capable path: prompt (optional) + at most one attachment
+        # field. Existing JSON-only behavior (below) is untouched.
+        prompt_text = str(request.form.get("prompt", "")).strip()
+        demo_layer2_leak_requested = str(request.form.get("demo_layer2_leak", "")).strip().lower() == "true"
+
+        uploaded_file = request.files.get("attachment")
+        attachment_text = ""
+        if uploaded_file is not None and uploaded_file.filename:
+            try:
+                attachment_bytes = uploaded_file.read()
+                attachment_text = extract_attachment_text(uploaded_file.filename, attachment_bytes)
+            except AttachmentError as exc:
+                return jsonify({"error": str(exc)}), 400
+
+        if not prompt_text and not attachment_text:
+            return jsonify({"error": "Missing 'prompt' parameter or attachment."}), 400
+
+        if attachment_text:
+            prompt_text = f"{prompt_text}\n\n{attachment_text}".strip() if prompt_text else attachment_text
+    else:
+        data = request.get_json(silent=True)
+        if not data or "prompt" not in data:
+            return jsonify({"error": "Missing 'prompt' parameter in JSON payload."}), 400
+
+        prompt_text = str(data.get("prompt", "")).strip()
+        demo_layer2_leak_requested = bool(data.get("demo_layer2_leak") is True)
+
     client_ip = request.remote_addr or "127.0.0.1"
+
+    # Deterministic Layer 2 demo path: requires BOTH an explicit, dedicated
+    # request field (never the free-text prompt) AND the server being
+    # explicitly configured to allow it. This is off by default.
+    demo_layer2_leak_enabled = os.getenv("ENABLE_LAYER2_DEMO", "false").strip().lower() == "true"
+    trigger_layer2_demo_leak = demo_layer2_leak_requested and demo_layer2_leak_enabled
 
     # =========================================================
     # STEP 1: LAYER 1 — PROMPT SECURITY
@@ -311,7 +352,39 @@ def secure_prompt():
     # =========================================================
     # STEP 3: LLM GENERATION (SAFE / ALLOWED PATH)
     # =========================================================
-    llm_output = llm_client.generate_response(prompt_text)
+    llm_output = llm_client.generate_response(
+        prompt_text,
+        trigger_layer2_demo_leak=trigger_layer2_demo_leak
+    )
+
+    if llm_output.get("status") == "error":
+        import uuid
+        req_id = f"REQ-{uuid.uuid4().hex[:8].upper()}"
+        internal_error_detail = llm_output.get("error", "unknown error")
+        generic_error_message = "LLM provider request failed"
+        print(f"[LLM PROVIDER ERROR] request_id={req_id} detail={internal_error_detail}")
+        log_incident(
+            prompt=prompt_text, risk_score=risk_score, risk_level=risk_level,
+            attack_type=attack_type, layer1_decision=l1_decision,
+            layer2_decision="NOT_EXECUTED", final_decision="ERROR",
+            reason=f"LLM provider error: {internal_error_detail}",
+            alert_status="SKIPPED", client_ip=client_ip,
+            email_status="SKIPPED", sms_status="SKIPPED", request_id=req_id
+        )
+        return jsonify({
+            "request_id": req_id, "llm_called": True, "final_decision": "ERROR",
+            "response": f"[{generic_error_message}]", "layer1": l1_result,
+            "layer2": {"status":"NOT_EXECUTED","decision":"NOT_EXECUTED","is_safe":False,
+                       "reason":"LLM provider call failed before a response was generated.",
+                       "risk_level":"N/A","risk_score":0.0,
+                       "leakage_details":{"findings":[],"leakage_detected":False,"leakage_score":0.0,
+                                          "reason":"LLM provider call failed before a response was generated."}},
+            "llm_metadata":{"provider":llm_output.get("provider"),"model":llm_output.get("model"),
+                            "latency_ms":llm_output.get("latency_ms"),"status":"error","error":generic_error_message},
+            "alert_status":"SKIPPED","email_status":"SKIPPED","sms_status":"SKIPPED",
+            "sensitive_resource_locked":False
+        }), 502
+
     raw_response = llm_output.get("raw_response", "")
 
     # =========================================================
@@ -391,12 +464,14 @@ def secure_prompt():
 # 4. Incident Analytics & User Status API
 # -------------------------------------------------------------
 @app.route("/api/incidents", methods=["GET"])
+@require_admin_auth
 def api_incidents():
     incidents = get_all_incidents(limit=50)
     return jsonify(incidents), 200
 
 
 @app.route("/api/stats", methods=["GET"])
+@require_admin_auth
 def api_stats():
     stats = get_security_stats()
     return jsonify(stats), 200
@@ -415,15 +490,10 @@ def api_user_status():
 @app.route("/api/reauth", methods=["POST"])
 def api_unlock():
     data = request.get_json(silent=True) or {}
-    username = data.get("username", "admin").strip()
+    username = data.get("username", ADMIN_USERNAME).strip()
     password = data.get("password", "").strip()
 
-    # Check password (default: admin123)
-    salt = "prompt_sentinel_salt"
-    entered_hash = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
-    expected_hash = hashlib.sha256((salt + "admin123").encode("utf-8")).hexdigest()
-
-    if entered_hash == expected_hash:
+    if verify_admin_credentials(username, password):
         SESSION_STATE["is_locked"] = False
         SESSION_STATE["lock_reason"] = None
         return jsonify({

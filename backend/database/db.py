@@ -6,7 +6,6 @@ for incident logging, statistics, and user authentication.
 
 import sqlite3
 import os
-import hashlib
 import uuid
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -57,7 +56,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
-    # 2. Users Table
+    # 2. Users Table (currently unused by the app's own admin auth, which is
+    # resolved from environment configuration — see backend/auth.py — but
+    # kept here for any future per-user account support). No default row is
+    # seeded: a hardcoded default account/password here would itself be a
+    # credential baked into source, which is exactly what backend/auth.py
+    # avoids for the actual admin login.
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,16 +72,6 @@ def init_db():
         last_login TEXT
     )
     """)
-
-    # Create default user if empty (demo_user / admin123)
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
-        salt = "prompt_sentinel_salt"
-        default_pwd_hash = hashlib.sha256((salt + "admin123").encode("utf-8")).hexdigest()
-        cursor.execute("""
-        INSERT INTO users (username, password_hash, is_locked, role, last_login)
-        VALUES (?, ?, 0, 'admin', ?)
-        """, ("admin", default_pwd_hash, datetime.utcnow().isoformat()))
 
     conn.commit()
     conn.close()

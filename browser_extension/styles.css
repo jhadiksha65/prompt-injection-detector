@@ -272,3 +272,43 @@ body {
     border: 1px solid var(--border-light);
     color: var(--brand-navy);
 }
+/* Settings Panel */
+.btn-icon {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px;
+    border-radius: 6px;
+    line-height: 1;
+}
+.btn-icon:hover {
+    background: var(--bg-main);
+}
+
+.settings-panel {
+    padding: 12px 16px;
+    background: var(--bg-main);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.settings-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.settings-row input {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.settings-status {
+    font-size: 11px;
+    margin-top: 6px;
+    min-height: 14px;
+}

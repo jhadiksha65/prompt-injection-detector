@@ -127,7 +127,7 @@ The server starts at `http://localhost:5000`:
 #### Scenario 5: Threat-Triggered Lockout & Re-Authentication
 - Navigate to `http://localhost:5000/sensitive-resource`.
 - Following a Critical threat, access is revoked with a security lock.
-- Enter `admin123` to re-authenticate and restore access.
+- Enter `your-configured-admin-password` to re-authenticate and restore access.
 
 ---
 

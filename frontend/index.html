@@ -148,6 +148,10 @@
                                     <span class="bd-label">Risk Assessment</span>
                                     <span class="bd-value" id="bdRisk">LOW</span>
                                 </div>
+                                <div class="bd-row">
+                                    <span class="bd-label">Layer 2 Response Security</span>
+                                    <span class="bd-value" id="bdLayer2">NOT_EXECUTED</span>
+                                </div>
                                 <div class="bd-row bd-final">
                                     <span class="bd-label">Final Security Decision</span>
                                     <span class="bd-value" id="bdDecision">ALLOW</span>
@@ -155,8 +159,14 @@
                             </div>
                         </div>
 
+                        <!-- Final Response -->
+                        <div class="breakdown-section" id="responseSection">
+                            <h4 class="section-subtitle">SYSTEM RESPONSE</h4>
+                            <div class="prompt-text-block" id="resResponseText"></div>
+                        </div>
+
                         <!-- Analyzed Prompt Expander -->
-                        <div class="analyzed-prompt-expander">
+                        <div class="analyzed-prompt-expander" id="analyzedPromptExpander">
                             <div class="expander-header" id="promptExpanderBtn">
                                 <span>Analyzed Prompt</span>
                                 <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
@@ -206,6 +216,23 @@
                         </div>
                     </div>
 
+                </div>
+            </div>
+
+            <!-- Layer 1 HIGH/CRITICAL Block Dialog -->
+            <div id="blockDialogOverlay" class="block-dialog-overlay" style="display: none;" role="presentation">
+                <div class="block-dialog" role="alertdialog" aria-modal="true" aria-labelledby="blockDialogTitle" aria-describedby="blockDialogMessage">
+                    <div class="block-dialog-icon" aria-hidden="true">⛔</div>
+                    <h3 class="block-dialog-title" id="blockDialogTitle">Prompt Blocked Before Reaching the AI</h3>
+                    <p class="block-dialog-message" id="blockDialogMessage">
+                        This prompt was not sent to the AI model. Our security layer identified it as a
+                        <strong id="blockDialogRiskLevel">HIGH</strong> risk
+                        (<span id="blockDialogAttackType">Prompt Injection</span>) before generation began.
+                    </p>
+                    <p class="block-dialog-reason" id="blockDialogReason"></p>
+                    <div class="block-dialog-actions">
+                        <button type="button" id="blockDialogRetryBtn" class="btn btn-primary">Try a Safer Prompt</button>
+                    </div>
                 </div>
             </div>
         </section>
