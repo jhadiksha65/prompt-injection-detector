@@ -117,6 +117,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const flaggedSection = document.getElementById('flaggedSection');
     const flaggedList = document.getElementById('flaggedList');
 
+    // Threat Evidence Elements
+    const threatEvidenceBox = document.getElementById('threatEvidenceBox');
+    const threatEvidenceList = document.getElementById('threatEvidenceList');
+
     // Analysis Scope Elements
     const analysisScopeBox = document.getElementById('analysisScopeBox');
     const analysisScopeToggle = document.getElementById('analysisScopeToggle');
@@ -156,7 +160,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const blockDialogProtectedBtn = document.getElementById('blockDialogProtectedBtn');
     const blockDialogScannedPrompt = document.getElementById('blockDialogScannedPrompt');
     const blockDialogScannedMeta = document.getElementById('blockDialogScannedMeta');
+    const blockDialogThreatSource = document.getElementById('blockDialogThreatSource');
     const blockDialogRiskScoreDisplay = document.getElementById('blockDialogRiskScoreDisplay');
+    const blockDialogEvidenceSection = document.getElementById('blockDialogEvidenceSection');
+    const blockDialogEvidence = document.getElementById('blockDialogEvidence');
 
     // Error State Elements
     const errorStateTitle = document.getElementById('errorStateTitle');
@@ -579,21 +586,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resultIcon) resultIcon.innerHTML = iconSvg;
 
         // Update Expandable Analysis Scope / Scanned Input Box
-        if (analysisScopeBox && scopeChecklist && scopeMetadataDetails) {
-            const scope = data.analysis_scope || {};
-            const attMeta = data.attachment_metadata || {};
-            const hasPrompt = scope.prompt_analyzed !== undefined ? !!scope.prompt_analyzed : Boolean(promptText && !promptText.startsWith('[Attachment:'));
-            const hasAtt = scope.attachment_analyzed !== undefined ? !!scope.attachment_analyzed : Boolean(attachedFile || attMeta.filename);
-            const fn = scope.filename || attMeta.filename || (attachedFile ? attachedFile.name : '');
-            const ftype = (scope.file_type || attMeta.file_type || (fn ? fn.split('.').pop() : '')).toUpperCase();
-            const chars = scope.extracted_chars !== undefined ? scope.extracted_chars : (attMeta.extracted_chars || 0);
+        const scope = data.analysis_scope || {};
+        const attribution = data.threat_attribution || {};
+        const attMeta = data.attachment_metadata || {};
+        const isImage = !!scope.is_image || !!attMeta.is_image;
+        const sourceLabel = isImage ? 'Uploaded Image' : 'Uploaded Document';
+        const extractionLabel = isImage ? 'OCR text analyzed' : 'Extracted text analyzed';
 
+        const promptThreatDetected = attribution.prompt_threat_detected ?? scope.prompt_threat_detected ?? (overallDecision === 'BLOCK' && !scope.attachment_threat_detected);
+        const attThreatDetected = attribution.attachment_threat_detected ?? scope.attachment_threat_detected ?? false;
+        const promptEvidence = attribution.prompt_evidence || scope.prompt_evidence;
+        const attEvidence = attribution.attachment_evidence || scope.attachment_evidence;
+        const threatSource = attribution.source || attribution.threat_source || scope.threat_source || (attThreatDetected ? sourceLabel : 'User Prompt');
+        const attackVector = attribution.attack_vector || scope.attack_vector || layer1.attack_type || (attThreatDetected ? 'Indirect Prompt Injection' : 'Direct Prompt Injection');
+        const filename = scope.filename || attMeta.filename || (attachedFile ? attachedFile.name : '');
+        const ftype = (scope.file_type || attMeta.file_type || (filename ? filename.split('.').pop() : '')).toUpperCase();
+        const chars = scope.extracted_chars !== undefined ? scope.extracted_chars : (attMeta.extracted_chars || 0);
+        const hasPrompt = scope.prompt_analyzed !== undefined ? !!scope.prompt_analyzed : Boolean(promptText && !promptText.startsWith('[Attachment:'));
+        const hasAtt = scope.attachment_analyzed !== undefined ? !!scope.attachment_analyzed : Boolean(attachedFile || attMeta.filename);
+
+        if (analysisScopeBox && scopeChecklist && scopeMetadataDetails) {
             scopeChecklist.innerHTML = '';
 
             // Scope Item 1: Prompt
             const liPrompt = document.createElement('li');
-            if (hasPrompt) {
-                liPrompt.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>User prompt:</strong> Scanned for direct manipulation and instruction overrides</span>`;
+            if (promptThreatDetected) {
+                liPrompt.innerHTML = `<span class="scope-icon threat">⚠️</span> <span><strong>User prompt:</strong> Malicious instruction detected (<span style="color:var(--threat); font-weight:600;">Direct Prompt Injection</span>)</span>`;
+            } else if (hasPrompt) {
+                liPrompt.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>User prompt:</strong> Scanned — no malicious instruction detected</span>`;
             } else {
                 liPrompt.innerHTML = `<span class="scope-icon off">—</span> <span><strong>User prompt:</strong> Not provided (attachment-only analysis)</span>`;
             }
@@ -601,16 +621,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Scope Item 2: Attachment
             const liAtt = document.createElement('li');
-            if (hasAtt) {
-                liAtt.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>Attachment content:</strong> Extracted &amp; scanned for indirect prompt injection</span>`;
+            if (attThreatDetected) {
+                liAtt.innerHTML = `<span class="scope-icon threat">⚠️</span> <span><strong>${escapeHtml(sourceLabel)}:</strong> Malicious instruction detected (<span style="color:var(--threat); font-weight:600;">Indirect Prompt Injection</span>)</span>`;
+            } else if (hasAtt) {
+                liAtt.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>${escapeHtml(sourceLabel)}:</strong> Scanned — no malicious instruction detected</span>`;
             } else {
                 liAtt.innerHTML = `<span class="scope-icon off">—</span> <span><strong>Attachment:</strong> None attached</span>`;
             }
             scopeChecklist.appendChild(liAtt);
 
-            // Scope Metadata
+            // Scope Item 3: Attack Vector Summary
+            const liVector = document.createElement('li');
+            if (userRec === 'BLOCK' || promptThreatDetected || attThreatDetected) {
+                liVector.innerHTML = `<span class="scope-icon threat">🎯</span> <span><strong>Attack Vector:</strong> <span style="color:var(--threat); font-weight:600;">${escapeHtml(attackVector)}</span> (Source: ${escapeHtml(threatSource)})</span>`;
+            } else {
+                liVector.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>Attack Vector:</strong> None detected</span>`;
+            }
+            scopeChecklist.appendChild(liVector);
+
+            // Metadata summary
             if (hasAtt) {
-                scopeMetadataDetails.innerHTML = `Attachment: <strong>${escapeHtml(fn)}</strong> (${escapeHtml(ftype)}) &bull; Status: <span style="color:var(--safe); font-weight:600;">Extracted</span> &bull; <strong>${chars.toLocaleString()}</strong> characters analyzed`;
+                scopeMetadataDetails.innerHTML = `${escapeHtml(sourceLabel)}: <strong>${escapeHtml(filename)}</strong> (${escapeHtml(ftype)}) &bull; ${escapeHtml(extractionLabel)} &bull; <strong>${chars.toLocaleString()}</strong> characters analyzed`;
             } else {
                 scopeMetadataDetails.innerHTML = `Input scope: <strong>User prompt only</strong> &bull; Total length: <strong>${(promptText || '').length.toLocaleString()}</strong> characters analyzed`;
             }
@@ -618,10 +649,16 @@ document.addEventListener('DOMContentLoaded', () => {
             analysisScopeBox.style.display = 'block';
 
             if (resultScopeBadge) {
-                if (hasPrompt && hasAtt) {
-                    resultScopeBadge.textContent = `Security result: Based on prompt + document content ("${fn}")`;
+                if (promptThreatDetected && attThreatDetected) {
+                    resultScopeBadge.textContent = `Security result: Threats detected in both prompt and ${sourceLabel.toLowerCase()} ("${filename}")`;
+                } else if (attThreatDetected) {
+                    resultScopeBadge.textContent = `Security result: Threat detected in ${sourceLabel.toLowerCase()} ("${filename}")`;
+                } else if (promptThreatDetected) {
+                    resultScopeBadge.textContent = `Security result: Threat detected in user prompt`;
+                } else if (hasPrompt && hasAtt) {
+                    resultScopeBadge.textContent = `Security result: Based on prompt + ${sourceLabel.toLowerCase()} ("${filename}")`;
                 } else if (hasAtt) {
-                    resultScopeBadge.textContent = `Security result: Based on document content ("${fn}")`;
+                    resultScopeBadge.textContent = `Security result: Based on ${sourceLabel.toLowerCase()} ("${filename}")`;
                 } else {
                     resultScopeBadge.textContent = 'Security result: Based on prompt';
                 }
@@ -644,6 +681,73 @@ document.addEventListener('DOMContentLoaded', () => {
             resDecision.className = `badge-rec ${recClass}`;
         }
 
+        // Threat Evidence Section (Sections 2, 3, 4)
+        if (threatEvidenceBox && threatEvidenceList) {
+            if (userRec === 'BLOCK' || promptThreatDetected || attThreatDetected) {
+                threatEvidenceList.innerHTML = '';
+                if (promptThreatDetected && attThreatDetected) {
+                    threatEvidenceList.innerHTML = `
+                        <div class="evidence-card">
+                            <div class="evidence-header-row">
+                                <span class="evidence-num">1.</span>
+                                <span class="evidence-source-tag">Source: <strong>User Prompt</strong></span>
+                                <span class="evidence-vector-tag">Attack Vector: <strong>Direct Prompt Injection</strong></span>
+                            </div>
+                            <div class="evidence-detected-label">Detected instruction:</div>
+                            <div class="evidence-quote">"${escapeHtml(promptEvidence || promptText)}"</div>
+                            <div class="evidence-reason-label">Why this is suspicious:</div>
+                            <div class="evidence-desc">The user prompt directly attempts to override existing instructions and obtain protected system information.</div>
+                        </div>
+                        <div class="evidence-card" style="margin-top: 0.75rem;">
+                            <div class="evidence-header-row">
+                                <span class="evidence-num">2.</span>
+                                <span class="evidence-source-tag">Source: <strong>${escapeHtml(sourceLabel)}</strong></span>
+                                <span class="evidence-vector-tag">Attack Vector: <strong>Indirect Prompt Injection</strong></span>
+                            </div>
+                            <div class="evidence-detected-label">Detected instruction:</div>
+                            <div class="evidence-quote">"${escapeHtml(attEvidence || 'Instruction override detected in attachment')}"</div>
+                            <div class="evidence-reason-label">Why this is suspicious:</div>
+                            <div class="evidence-desc">The uploaded content contains an instruction attempting to override the AI's existing instructions and request protected system information.</div>
+                        </div>
+                    `;
+                    threatEvidenceBox.style.display = 'block';
+                } else if (attThreatDetected) {
+                    threatEvidenceList.innerHTML = `
+                        <div class="evidence-card">
+                            <div class="evidence-header-row">
+                                <span class="evidence-source-tag">Source: <strong>${escapeHtml(sourceLabel)}</strong></span>
+                                <span class="evidence-vector-tag">Attack Vector: <strong>Indirect Prompt Injection</strong></span>
+                            </div>
+                            <div class="evidence-detected-label">Detected instruction:</div>
+                            <div class="evidence-quote">"${escapeHtml(attEvidence || 'Instruction override detected in attachment')}"</div>
+                            <div class="evidence-reason-label">Why this is suspicious:</div>
+                            <div class="evidence-desc">The uploaded content contains an instruction attempting to override the AI's existing instructions and request protected system information.</div>
+                        </div>
+                    `;
+                    threatEvidenceBox.style.display = 'block';
+                } else if (promptThreatDetected || userRec === 'BLOCK') {
+                    const quoteText = promptEvidence || promptText || lastAnalyzedPrompt;
+                    threatEvidenceList.innerHTML = `
+                        <div class="evidence-card">
+                            <div class="evidence-header-row">
+                                <span class="evidence-source-tag">Source: <strong>User Prompt</strong></span>
+                                <span class="evidence-vector-tag">Attack Vector: <strong>Direct Prompt Injection</strong></span>
+                            </div>
+                            <div class="evidence-detected-label">Detected instruction:</div>
+                            <div class="evidence-quote">"${escapeHtml(quoteText)}"</div>
+                            <div class="evidence-reason-label">Why this is suspicious:</div>
+                            <div class="evidence-desc">The user prompt directly attempts to override existing instructions and obtain protected system information.</div>
+                        </div>
+                    `;
+                    threatEvidenceBox.style.display = 'block';
+                } else {
+                    threatEvidenceBox.style.display = 'none';
+                }
+            } else {
+                threatEvidenceBox.style.display = 'none';
+            }
+        }
+
         // "Why this was flagged" / Lightweight Explainability Section
         if (flaggedSection && flaggedList) {
             if (userRec === 'BLOCK' || userRec === 'REVIEW') {
@@ -653,51 +757,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 const bullets = [];
                 const lowerReason = reason.toLowerCase();
                 const lowerAttack = attackType.toLowerCase();
-                const attMeta = data.attachment_metadata || data.analysis_scope || {};
-                const attachedName = attMeta.filename || (attachedFile ? attachedFile.name : '');
-                const isFromAttachment = Boolean(attachedName && (data.analysis_scope?.attachment_analyzed || (lastAnalyzedPrompt && lastAnalyzedPrompt.startsWith('[Attachment:'))));
 
                 if (lowerReason.includes('override') || lowerAttack.includes('direct') || lowerReason.includes('directive') || lowerReason.includes('ignore')) {
-                    if (isFromAttachment) {
-                        bullets.push(`Instruction Override: Detected instruction override inside uploaded document: ${attachedName}`);
-                    } else {
-                        bullets.push('Instruction Override: Attempts to override instructions or system behavior');
-                    }
+                    bullets.push('Instruction override detected');
                 }
                 if (lowerReason.includes('system prompt') || lowerAttack.includes('leak') || lowerReason.includes('reveal') || lowerReason.includes('extract') || lowerReason.includes('verbatim')) {
-                    if (isFromAttachment) {
-                        bullets.push(`Prompt Extraction: Detected prompt extraction attempt inside uploaded document: ${attachedName}`);
-                    } else {
-                        bullets.push('Prompt Extraction: Attempts to access or reveal internal system instructions');
-                    }
+                    bullets.push('Attempt to obtain protected system instructions');
                 }
                 if (lowerAttack.includes('jailbreak') || lowerReason.includes('dan') || lowerReason.includes('unrestricted') || lowerAttack.includes('role') || lowerReason.includes('persona')) {
-                    if (isFromAttachment) {
-                        bullets.push(`Unauthorized Role-Playing: Attempts to bypass boundaries inside uploaded document: ${attachedName}`);
-                    } else {
-                        bullets.push('Unauthorized Role-Playing: Attempts to bypass boundaries via simulated persona');
-                    }
+                    bullets.push('Unauthorized persona or boundary bypass attempt');
                 }
                 if (lowerAttack.includes('goal') || lowerReason.includes('hijack') || lowerReason.includes('deviation') || lowerReason.includes('task')) {
-                    if (isFromAttachment) {
-                        bullets.push(`Goal Manipulation: Attempts to redirect model behavior inside uploaded document: ${attachedName}`);
-                    } else {
-                        bullets.push("Goal Manipulation: Attempts to steer the AI away from its intended task");
-                    }
+                    bullets.push('Attempt to steer the AI away from its intended task');
                 }
 
                 if (bullets.length === 0) {
-                    if (isFromAttachment) {
-                        bullets.push(`Suspicious Pattern: Adversarial patterns detected inside uploaded document: ${attachedName}`);
-                    } else {
-                        bullets.push('Suspicious Pattern: Contains adversarial phrasing or injection markers');
-                    }
-                    bullets.push('Could cause unintended AI behavior');
-                } else if (bullets.length < 2) {
-                    bullets.push('Suspicious Pattern: Contains adversarial phrasing or injection markers');
+                    bullets.push('Adversarial phrasing or injection markers detected');
                 }
 
-                bullets.slice(0, 3).forEach(b => {
+                // Explicitly add Source and Attack Vector bullet
+                bullets.push(`Source: ${threatSource}`);
+                bullets.push(`Attack Vector: ${attackVector}`);
+
+                bullets.forEach(b => {
                     const li = document.createElement('li');
                     li.textContent = b;
                     flaggedList.appendChild(li);
@@ -728,6 +810,20 @@ document.addEventListener('DOMContentLoaded', () => {
     function showBlockDialog(layer1, riskLevel) {
         if (!blockDialogOverlay) return;
 
+        const scope = lastAnalysisData?.analysis_scope || {};
+        const attribution = lastAnalysisData?.threat_attribution || {};
+        const attMeta = lastAnalysisData?.attachment_metadata || {};
+        const isImage = !!scope.is_image || !!attMeta.is_image;
+        const sourceLabel = isImage ? 'Uploaded Image' : 'Uploaded Document';
+
+        const promptThreatDetected = attribution.prompt_threat_detected ?? scope.prompt_threat_detected ?? false;
+        const attThreatDetected = attribution.attachment_threat_detected ?? scope.attachment_threat_detected ?? false;
+        const promptEvidence = attribution.prompt_evidence || scope.prompt_evidence;
+        const attEvidence = attribution.attachment_evidence || scope.attachment_evidence;
+        const threatSource = attribution.source || attribution.threat_source || scope.threat_source || (attThreatDetected ? sourceLabel : 'User Prompt');
+        const attackVector = attribution.attack_vector || scope.attack_vector || layer1.attack_type || (attThreatDetected ? 'Indirect Prompt Injection' : 'Direct Prompt Injection');
+        const filename = scope.filename || attMeta.filename || (attachedFile ? attachedFile.name : '');
+
         const titleEl = document.getElementById('blockDialogTitle');
         if (titleEl) titleEl.textContent = 'Prompt Blocked Before Reaching the AI';
 
@@ -742,11 +838,14 @@ document.addEventListener('DOMContentLoaded', () => {
             blockDialogRiskScoreDisplay.textContent = `${scoreVal} / 100`;
         }
 
-        const attackEl = document.getElementById('blockDialogAttackType');
-        if (attackEl) attackEl.textContent = layer1.attack_type || layer1.classification || 'Direct Prompt Injection';
+        // Threat Source in Block Dialog
+        if (blockDialogThreatSource) {
+            blockDialogThreatSource.textContent = threatSource;
+        }
 
-        const reasonEl = document.getElementById('blockDialogReason');
-        if (reasonEl) reasonEl.textContent = layer1.reason || 'Attempt to override system instructions and redirect model behavior.';
+        // Attack Vector in Block Dialog
+        const attackEl = document.getElementById('blockDialogAttackType');
+        if (attackEl) attackEl.textContent = attackVector;
 
         // Scanned Input in Block Dialog
         if (blockDialogScannedPrompt) {
@@ -760,13 +859,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (blockDialogScannedMeta) {
-            const attMeta = lastAnalysisData?.attachment_metadata || lastAnalysisData?.analysis_scope || {};
-            const fn = attMeta.filename || (attachedFile ? attachedFile.name : '');
-            if (fn) {
-                blockDialogScannedMeta.textContent = `📄 Attached File: ${fn} (extracted text was included in security analysis)`;
+            if (filename) {
+                blockDialogScannedMeta.textContent = `📄 ${sourceLabel}: ${filename} (Extracted text was included in security analysis.)`;
                 blockDialogScannedMeta.style.display = 'block';
             } else {
                 blockDialogScannedMeta.style.display = 'none';
+            }
+        }
+
+        // Threat Evidence in Block Dialog
+        if (blockDialogEvidenceSection && blockDialogEvidence) {
+            let evText = '';
+            if (promptThreatDetected && attThreatDetected) {
+                evText = `1. User Prompt: "${promptEvidence || lastAnalyzedPrompt}"\n2. ${sourceLabel}: "${attEvidence || 'Instruction override detected in attachment'}"`;
+            } else if (attThreatDetected) {
+                evText = `"${attEvidence || 'Instruction override detected in attachment'}"`;
+            } else {
+                evText = `"${promptEvidence || lastAnalyzedPrompt}"`;
+            }
+            blockDialogEvidence.textContent = evText;
+            blockDialogEvidenceSection.style.display = 'block';
+        }
+
+        // Why it was blocked in Block Dialog
+        const reasonEl = document.getElementById('blockDialogReason');
+        if (reasonEl) {
+            if (promptThreatDetected && attThreatDetected) {
+                reasonEl.textContent = `Both the submitted prompt and ${sourceLabel.toLowerCase()} contain instructions attempting to override the AI's instructions.`;
+            } else if (attThreatDetected) {
+                reasonEl.textContent = `The uploaded content contains an instruction attempting to override the AI's existing instructions.`;
+            } else {
+                reasonEl.textContent = `The submitted prompt directly attempts to override the AI's instructions.`;
             }
         }
 
@@ -876,6 +999,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (inputTransparencyBadge) inputTransparencyBadge.style.display = 'none';
             if (resultContainer) resultContainer.style.display = 'none';
             if (analysisScopeBox) analysisScopeBox.style.display = 'none';
+            if (threatEvidenceBox) threatEvidenceBox.style.display = 'none';
             if (errorState) errorState.style.display = 'none';
             lastAnalysisData = null;
             lastAnalyzedPrompt = '';

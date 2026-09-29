@@ -205,6 +205,12 @@
                             </div>
                         </div>
 
+                        <!-- Threat Evidence & Source Attribution Section -->
+                        <div class="threat-evidence-box" id="threatEvidenceBox" style="display: none;">
+                            <h4 class="flagged-title">Threat Evidence</h4>
+                            <div id="threatEvidenceList" class="threat-evidence-items"></div>
+                        </div>
+
                         <!-- "Why this was flagged" / Explainability Section -->
                         <div class="flagged-section" id="flaggedSection" style="display: none;">
                             <h4 class="flagged-title">Security Signals &amp; Explainability:</h4>
@@ -277,14 +283,24 @@
                         <!-- Threat & Risk Breakdown Grid -->
                         <div class="block-dialog-grid">
                             <div class="block-grid-cell">
+                                <span class="block-cell-label">Threat Source</span>
+                                <div class="block-cell-val" id="blockDialogThreatSource">User Prompt</div>
+                            </div>
+                            <div class="block-grid-cell">
+                                <span class="block-cell-label">Attack Vector</span>
+                                <div class="block-cell-val" id="blockDialogAttackType">Direct Prompt Injection</div>
+                            </div>
+                            <div class="block-grid-cell">
                                 <span class="block-cell-label">Risk</span>
                                 <div class="block-cell-val" id="blockDialogRiskScoreDisplay">100 / 100</div>
                                 <span class="badge-risk critical" id="blockDialogRiskLevel">CRITICAL</span>
                             </div>
-                            <div class="block-grid-cell">
-                                <span class="block-cell-label">Detection</span>
-                                <div class="block-cell-val" id="blockDialogAttackType">Direct Prompt Injection</div>
-                            </div>
+                        </div>
+
+                        <!-- Threat Evidence Section -->
+                        <div class="block-dialog-section" id="blockDialogEvidenceSection" style="display: none;">
+                            <span class="block-dialog-label">Threat Evidence</span>
+                            <div id="blockDialogEvidence" class="scanned-prompt-quote" style="border-left-color: var(--threat); font-style: italic;"></div>
                         </div>
 
                         <!-- Why it was blocked -->

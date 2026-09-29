@@ -16,6 +16,7 @@ Provides:
 import os
 import sys
 import hashlib
+import re
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from flask_cors import CORS
@@ -201,6 +202,54 @@ def detect():
     return jsonify(result), 200
 
 
+def extract_threat_evidence(text: str, l1_res: dict = None) -> str:
+    """
+    Extracts a concise, accurate quote of the malicious instruction from text.
+    For documents/images, quotes the actual extracted/OCR malicious text.
+    """
+    if not text or not isinstance(text, str):
+        return ""
+
+    patterns = [
+        r"(?i)\b(ignore|disregard|forget|override|bypass|discard|cancel)\s+(all\s+)?(the\s+above|previous|prior|above|preceding|earlier|past)(\s+(instructions?|rules?|directives?|guidelines?|constraints?|prompts?|context))?[^\n.?!]*",
+        r"(?i)\b(output|repeat|print|display|reveal|transcribe|echo|dump|show|disclose)\s+(your\s+)?(exact\s+)?(entire\s+)?(system\s+prompt|initial\s+instructions|hidden\s+instructions|developer\s+guidelines|system\s+instructions)[^\n.?!]*",
+        r"(?i)\b(system\s+override|instruction\s+reset|admin\s+command|developer\s+emergency\s+mode)[^\n.?!]*",
+        r"(?i)\b(act\s+as\s+dan|do\s+anything\s+now|developer\s+mode|unfiltered\s+ai|unrestricted\s+mode)[^\n.?!]*",
+        r"(?i)\b(stop|abandon|cancel|terminate|discontinue|halt)\s+(your\s+)?(current\s+)?(task|role|objective|workflow|analysis)[^\n.?!]*",
+        r"(?i)\b(override\s+(all\s+)?safety\s+(rules|filters|guidelines))[^\n.?!]*",
+    ]
+
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            start, end = m.span()
+            prev_newline = text.rfind('\n', 0, start)
+            next_newline = text.find('\n', end)
+            line_start = 0 if prev_newline == -1 else prev_newline + 1
+            line_end = len(text) if next_newline == -1 else next_newline
+            candidate = text[line_start:line_end].strip()
+            if candidate:
+                if len(candidate) > 250:
+                    rel_start = max(0, start - line_start - 20)
+                    rel_end = min(len(candidate), end - line_start + 60)
+                    candidate = ("..." if rel_start > 0 else "") + candidate[rel_start:rel_end].strip() + ("..." if rel_end < len(candidate) else "")
+                return candidate
+
+    clean_text = " ".join(text.split()).strip()
+    if len(clean_text) <= 250:
+        return clean_text
+
+    keywords = ["ignore", "instruction", "system prompt", "reveal", "override", "bypass", "developer mode", "secret"]
+    for line in text.splitlines():
+        line_clean = line.strip()
+        if any(kw in line_clean.lower() for kw in keywords) and len(line_clean) >= 10:
+            if len(line_clean) > 250:
+                return line_clean[:240].strip() + "..."
+            return line_clean
+
+    return clean_text[:240].strip() + "..."
+
+
 # -------------------------------------------------------------
 # 3. Main Dual-Layer Security Middleware Endpoint
 # -------------------------------------------------------------
@@ -220,24 +269,30 @@ def secure_prompt():
     is_multipart_request = bool(request.content_type) and request.content_type.startswith("multipart/form-data")
 
     attachment_metadata = None
+    is_image = False
+    filename = None
+    file_type = None
+    raw_prompt_text = ""
+    attachment_text = ""
+
     if is_multipart_request:
         # Attachment-capable path: prompt (optional) + at most one attachment
         # field. Existing JSON-only behavior (below) is untouched.
-        prompt_text = str(request.form.get("prompt", "")).strip()
-        raw_prompt_text = prompt_text
+        raw_prompt_text = str(request.form.get("prompt", "")).strip()
         demo_layer2_leak_requested = str(request.form.get("demo_layer2_leak", "")).strip().lower() == "true"
 
         uploaded_file = request.files.get("attachment")
-        attachment_text = ""
         if uploaded_file is not None and uploaded_file.filename:
             try:
                 attachment_bytes = uploaded_file.read()
                 attachment_text = extract_attachment_text(uploaded_file.filename, attachment_bytes)
-                ext = os.path.splitext(uploaded_file.filename)[1].lower().lstrip(".")
+                filename = uploaded_file.filename
+                ext = os.path.splitext(filename)[1].lower().lstrip(".")
                 is_image = ext in ("png", "jpg", "jpeg")
+                file_type = ext.upper()
                 attachment_metadata = {
-                    "filename": uploaded_file.filename,
-                    "file_type": ext.upper(),
+                    "filename": filename,
+                    "file_type": file_type,
                     "is_image": is_image,
                     "extracted_chars": len(attachment_text),
                     "extraction_status": "Success",
@@ -246,35 +301,15 @@ def secure_prompt():
             except AttachmentError as exc:
                 return jsonify({"error": str(exc)}), 400
 
-        if not prompt_text and not attachment_text:
+        if not raw_prompt_text and not attachment_text:
             return jsonify({"error": "Missing 'prompt' parameter or attachment."}), 400
-
-        if attachment_text:
-            prompt_text = f"{prompt_text}\n\n{attachment_text}".strip() if prompt_text else attachment_text
-
-        analysis_scope = {
-            "prompt_analyzed": bool(raw_prompt_text),
-            "attachment_analyzed": bool(attachment_text),
-            "filename": uploaded_file.filename if uploaded_file else None,
-            "file_type": os.path.splitext(uploaded_file.filename)[1].lower().lstrip(".").upper() if (uploaded_file and uploaded_file.filename) else None,
-            "extraction_status": "Success" if attachment_text else "None",
-            "extracted_chars": len(attachment_text) if attachment_text else 0
-        }
     else:
         data = request.get_json(silent=True)
         if not data or "prompt" not in data:
             return jsonify({"error": "Missing 'prompt' parameter in JSON payload."}), 400
 
-        prompt_text = str(data.get("prompt", "")).strip()
+        raw_prompt_text = str(data.get("prompt", "")).strip()
         demo_layer2_leak_requested = bool(data.get("demo_layer2_leak") is True)
-        analysis_scope = {
-            "prompt_analyzed": True,
-            "attachment_analyzed": False,
-            "filename": None,
-            "file_type": None,
-            "extraction_status": "None",
-            "extracted_chars": 0
-        }
 
     client_ip = request.remote_addr or "127.0.0.1"
 
@@ -285,9 +320,124 @@ def secure_prompt():
     trigger_layer2_demo_leak = demo_layer2_leak_requested and demo_layer2_leak_enabled
 
     # =========================================================
-    # STEP 1: LAYER 1 — PROMPT SECURITY
+    # STEP 1: LAYER 1 — PROMPT SECURITY WITH SEPARATE ATTRIBUTION
     # =========================================================
-    l1_result = prompt_engine.analyze_prompt(prompt_text)
+    # A. Analyze user prompt separately if provided
+    prompt_l1 = None
+    prompt_threat_detected = False
+    if raw_prompt_text:
+        prompt_l1 = prompt_engine.analyze_prompt(raw_prompt_text)
+        prompt_threat_detected = (
+            prompt_l1["decision"] == "BLOCK" or 
+            prompt_l1["risk_level"] in ["CRITICAL", "HIGH"] or 
+            prompt_l1.get("is_injection") is True
+        )
+
+    # B. Analyze extracted attachment content separately if provided
+    att_l1 = None
+    attachment_threat_detected = False
+    if attachment_text:
+        att_l1 = prompt_engine.analyze_prompt(attachment_text)
+        attachment_threat_detected = (
+            att_l1["decision"] == "BLOCK" or 
+            att_l1["risk_level"] in ["CRITICAL", "HIGH"] or 
+            att_l1.get("is_injection") is True
+        )
+
+    # C. Combined prompt analysis for overall gateway decision
+    if raw_prompt_text and attachment_text:
+        prompt_text = f"{raw_prompt_text}\n\n{attachment_text}".strip()
+        l1_result = prompt_engine.analyze_prompt(prompt_text)
+    elif raw_prompt_text:
+        prompt_text = raw_prompt_text
+        l1_result = prompt_l1
+    else:
+        prompt_text = attachment_text
+        l1_result = att_l1
+
+    is_overall_block = (
+        l1_result["decision"] == "BLOCK" or 
+        l1_result["risk_level"] in ["CRITICAL", "HIGH"] or 
+        l1_result.get("is_injection") is True
+    )
+
+    # If overall blocked but neither individual component triggered, attribute to the higher risk component
+    if is_overall_block and not prompt_threat_detected and not attachment_threat_detected:
+        prompt_score = prompt_l1["risk_score"] if prompt_l1 else 0
+        att_score = att_l1["risk_score"] if att_l1 else 0
+        if att_score > prompt_score:
+            attachment_threat_detected = True
+        elif prompt_score > att_score:
+            prompt_threat_detected = True
+        else:
+            prompt_threat_detected = bool(raw_prompt_text)
+            attachment_threat_detected = bool(attachment_text)
+
+    source_item_label = "Uploaded Image" if is_image else "Uploaded Document"
+
+    prompt_evidence = None
+    attachment_evidence = None
+    if prompt_threat_detected:
+        prompt_evidence = extract_threat_evidence(raw_prompt_text, prompt_l1)
+    if attachment_threat_detected:
+        attachment_evidence = extract_threat_evidence(attachment_text, att_l1)
+
+    if prompt_threat_detected and attachment_threat_detected:
+        threat_source_label = f"User Prompt & {source_item_label}"
+        overall_attack_vector = "Direct & Indirect Prompt Injection"
+        l1_result["attack_type"] = "Direct & Indirect Prompt Injection"
+        l1_result["reason"] = f"Both the user prompt and {source_item_label.lower()} contain instruction overrides or adversarial directives."
+    elif attachment_threat_detected:
+        threat_source_label = source_item_label
+        overall_attack_vector = "Indirect Prompt Injection"
+        l1_result["attack_type"] = "Indirect Prompt Injection"
+        l1_result["reason"] = f"The {source_item_label.lower()} contains an instruction attempting to override the AI's existing instructions."
+    elif prompt_threat_detected:
+        threat_source_label = "User Prompt"
+        overall_attack_vector = "Direct Prompt Injection"
+        l1_result["attack_type"] = "Direct Prompt Injection"
+        l1_result["reason"] = "The user prompt directly attempts to override existing instructions and obtain protected system information."
+    else:
+        threat_source_label = "None"
+        overall_attack_vector = "None detected"
+
+    prompt_attack_type = "Direct Prompt Injection" if prompt_threat_detected else None
+    attachment_attack_type = "Indirect Prompt Injection" if attachment_threat_detected else None
+
+    threat_attribution = {
+        "prompt_analyzed": bool(raw_prompt_text),
+        "attachment_analyzed": bool(attachment_text),
+        "prompt_threat_detected": prompt_threat_detected,
+        "attachment_threat_detected": attachment_threat_detected,
+        "prompt_attack_type": prompt_attack_type,
+        "attachment_attack_type": attachment_attack_type,
+        "prompt_evidence": prompt_evidence,
+        "attachment_evidence": attachment_evidence,
+        "source": threat_source_label,
+        "threat_source": threat_source_label,
+        "attack_vector": overall_attack_vector,
+        "source_item_label": source_item_label if attachment_text else None
+    }
+
+    analysis_scope = {
+        "prompt_analyzed": bool(raw_prompt_text),
+        "attachment_analyzed": bool(attachment_text),
+        "filename": filename,
+        "file_type": file_type,
+        "extraction_status": "Success" if attachment_text else "None",
+        "extracted_chars": len(attachment_text) if attachment_text else 0,
+        "is_image": is_image,
+        "extraction_label": "OCR text analyzed" if is_image else "Extracted text analyzed",
+        "prompt_threat_detected": prompt_threat_detected,
+        "attachment_threat_detected": attachment_threat_detected,
+        "prompt_attack_type": prompt_attack_type,
+        "attachment_attack_type": attachment_attack_type,
+        "prompt_evidence": prompt_evidence,
+        "attachment_evidence": attachment_evidence,
+        "threat_source": threat_source_label,
+        "attack_vector": overall_attack_vector,
+    }
+
     l1_decision = l1_result["decision"]
     risk_score = l1_result["risk_score"]
     risk_level = l1_result["risk_level"]
@@ -377,7 +527,8 @@ def secure_prompt():
                 "lock_status": "LOCKED" if is_critical else "ACTIVE"
             },
             "attachment_metadata": attachment_metadata,
-            "analysis_scope": analysis_scope
+            "analysis_scope": analysis_scope,
+            "threat_attribution": threat_attribution
         }), 200
 
     # =========================================================
@@ -489,7 +640,8 @@ def secure_prompt():
         "sms_status": sms_status,
         "sensitive_resource_locked": False,
         "attachment_metadata": attachment_metadata,
-        "analysis_scope": analysis_scope
+        "analysis_scope": analysis_scope,
+        "threat_attribution": threat_attribution
     }), 200
 
 
