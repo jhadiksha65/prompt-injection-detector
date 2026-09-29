@@ -138,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Modals
     const detailsModal = document.getElementById('detailsModal');
     const detailsModalClose = document.getElementById('detailsModalClose');
+    const btnLockAdminSession = document.getElementById('btnLockAdminSession');
     const saferModal = document.getElementById('saferModal');
     const saferModalClose = document.getElementById('saferModalClose');
     const btnCopySafer = document.getElementById('btnCopySafer');
@@ -871,11 +872,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (blockDialogEvidenceSection && blockDialogEvidence) {
             let evText = '';
             if (promptThreatDetected && attThreatDetected) {
-                evText = `1. User Prompt: "${promptEvidence || lastAnalyzedPrompt}"\n2. ${sourceLabel}: "${attEvidence || 'Instruction override detected in attachment'}"`;
+                evText = `Detected in user prompt:\n"${promptEvidence || lastAnalyzedPrompt}"\n\nDetected in ${sourceLabel.toLowerCase()}:\n"${attEvidence || 'Instruction override detected in attachment'}"`;
             } else if (attThreatDetected) {
-                evText = `"${attEvidence || 'Instruction override detected in attachment'}"`;
+                evText = `Detected in ${sourceLabel.toLowerCase()}:\n"${attEvidence || 'Instruction override detected in attachment'}"`;
             } else {
-                evText = `"${promptEvidence || lastAnalyzedPrompt}"`;
+                evText = `Detected in user prompt:\n"${promptEvidence || lastAnalyzedPrompt}"`;
             }
             blockDialogEvidence.textContent = evText;
             blockDialogEvidenceSection.style.display = 'block';
@@ -885,11 +886,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const reasonEl = document.getElementById('blockDialogReason');
         if (reasonEl) {
             if (promptThreatDetected && attThreatDetected) {
-                reasonEl.textContent = `Both the submitted prompt and ${sourceLabel.toLowerCase()} contain instructions attempting to override the AI's instructions.`;
+                reasonEl.textContent = `Both the submitted prompt and ${sourceLabel.toLowerCase()} contain instructions attempting to override or manipulate the AI's instruction hierarchy.`;
             } else if (attThreatDetected) {
-                reasonEl.textContent = `The uploaded content contains an instruction attempting to override the AI's existing instructions.`;
+                reasonEl.textContent = `The ${sourceLabel.toLowerCase()} contains an instruction attempting to override or manipulate the AI's instruction hierarchy.`;
             } else {
-                reasonEl.textContent = `The submitted prompt directly attempts to override the AI's instructions.`;
+                reasonEl.textContent = `The user prompt directly attempts to override existing instructions and obtain protected system information.`;
             }
         }
 
@@ -1041,6 +1042,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     authNotice.textContent = adminAuthToken ? 'Unlocked (Administrator)' : 'Standard User Session';
                     authNotice.style.color = adminAuthToken ? 'var(--safe)' : 'var(--text-subtle)';
                 }
+                if (btnLockAdminSession) {
+                    btnLockAdminSession.style.display = adminAuthToken ? 'inline-flex' : 'none';
+                }
 
                 if (detailsModal) detailsModal.style.display = 'flex';
             }
@@ -1050,6 +1054,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (detailsModalClose) {
         detailsModalClose.addEventListener('click', () => {
             if (detailsModal) detailsModal.style.display = 'none';
+        });
+    }
+
+    // --- Lock Admin Session Action ---
+    if (btnLockAdminSession) {
+        btnLockAdminSession.addEventListener('click', async () => {
+            adminAuthToken = null;
+            try {
+                await fetch('/api/lock', { method: 'POST' });
+            } catch (err) {}
+            if (detailsModal) detailsModal.style.display = 'none';
+            btnLockAdminSession.style.display = 'none';
+            const authNotice = document.getElementById('modalAuthStatus');
+            if (authNotice) {
+                authNotice.textContent = 'Standard User Session';
+                authNotice.style.color = 'var(--text-subtle)';
+            }
+            showToast('Admin session locked. Protected details now require authentication.');
+            loadHistory();
         });
     }
 
@@ -1088,6 +1111,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     authPassword.value = '';
                     showToast('Authorized: Admin security telemetry unlocked');
                     loadHistory(); // Reload history with full incidents
+                    if (btnViewDetails) btnViewDetails.click();
                 } else {
                     if (authErrorMsg) {
                         authErrorMsg.textContent = data.error || 'Authentication failed: Invalid credentials provided.';

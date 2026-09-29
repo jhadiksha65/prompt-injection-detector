@@ -57,26 +57,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 return;
             }
 
-            chrome.tabs.sendMessage(tabId, { type: "GET_CURRENT_PROMPT" }, (response) => {
-                if (chrome.runtime.lastError || !response?.text) {
-                    sendResponse({
-                        success: false,
-                        text: "",
-                        error: "No prompt text found in active input box."
-                    });
-                    return;
-                }
-
-                const capturedText = response.text.trim();
-                if (!capturedText) {
-                    sendResponse({
-                        success: false,
-                        text: "",
-                        error: "Input box is empty."
-                    });
-                    return;
-                }
-
+            const sendToSecurityBackend = (capturedText) => {
                 getApiBaseUrl().then((apiBaseUrl) => {
                     // Forward captured text through the same real dual-layer
                     // pipeline used everywhere else (/secure-prompt).
@@ -102,6 +83,105 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                                 error: "Security backend unreachable. Scan could not be confirmed."
                             });
                         });
+                });
+            };
+
+            chrome.tabs.sendMessage(tabId, { type: "GET_CURRENT_PROMPT" }, (response) => {
+                const capturedFromContent = (!chrome.runtime.lastError && response?.text) ? response.text.trim() : "";
+
+                if (capturedFromContent) {
+                    sendToSecurityBackend(capturedFromContent);
+                    return;
+                }
+
+                // If content script was disconnected or not yet injected, fallback to direct tab script execution
+                if (chrome.scripting && chrome.scripting.executeScript) {
+                    chrome.scripting.executeScript({
+                        target: { tabId: tabId },
+                        func: () => {
+                            function isPlaceholder(s) {
+                                if (!s) return true;
+                                const c = s.trim().toLowerCase();
+                                return (
+                                    c === "message chatgpt" ||
+                                    c === "message chatgpt..." ||
+                                    c === "message claude" ||
+                                    c === "message claude..." ||
+                                    c === "ask gemini" ||
+                                    c === "ask gemini..." ||
+                                    c === "type a message" ||
+                                    c === "type a message..." ||
+                                    c === "ask anything" ||
+                                    c === "ask anything..."
+                                );
+                            }
+                            function extractText(el) {
+                                if (!el) return "";
+                                if (typeof el.value === "string" && el.value.trim()) return el.value.trim();
+                                const pList = el.querySelectorAll ? el.querySelectorAll("p") : [];
+                                if (pList && pList.length > 0) {
+                                    const lines = [];
+                                    for (const p of pList) {
+                                        if (p.classList && p.classList.contains("placeholder") && !p.textContent.trim()) continue;
+                                        const pt = (p.textContent || p.innerText || "").trim();
+                                        if (pt && !isPlaceholder(pt)) lines.push(pt);
+                                    }
+                                    if (lines.length > 0) return lines.join("\n").trim();
+                                }
+                                const tc = (el.textContent || "").trim();
+                                const it = (el.innerText || "").trim();
+                                const cand = tc && !isPlaceholder(tc) ? tc : (it && !isPlaceholder(it) ? it : "");
+                                return cand;
+                            }
+
+                            const active = document.activeElement;
+                            if (active && active !== document.body && active !== document.documentElement) {
+                                const t = extractText(active);
+                                if (t) return t;
+                            }
+
+                            const sels = [
+                                '#prompt-textarea',
+                                '[data-testid="prompt-textarea"]',
+                                'form div.ProseMirror',
+                                'div.ProseMirror[contenteditable="true"]',
+                                'div.ProseMirror',
+                                'div[contenteditable="true"][role="textbox"]',
+                                'div[contenteditable="true"]',
+                                'form textarea',
+                                'textarea[data-id="root"]',
+                                'textarea',
+                                'rich-textarea',
+                                '[role="textbox"]'
+                            ];
+                            for (const s of sels) {
+                                const list = document.querySelectorAll(s);
+                                for (const item of list) {
+                                    const t = extractText(item);
+                                    if (t) return t;
+                                }
+                            }
+                            return "";
+                        }
+                    }, (results) => {
+                        const fallbackCaptured = (results && results[0] && results[0].result) ? results[0].result.trim() : "";
+                        if (fallbackCaptured) {
+                            sendToSecurityBackend(fallbackCaptured);
+                        } else {
+                            sendResponse({
+                                success: false,
+                                text: "",
+                                error: "No prompt text found in active input box."
+                            });
+                        }
+                    });
+                    return;
+                }
+
+                sendResponse({
+                    success: false,
+                    text: "",
+                    error: "No prompt text found in active input box."
                 });
             });
         });

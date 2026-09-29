@@ -367,7 +367,7 @@
                     </div>
                     <div class="form-group">
                         <label for="authPassword" class="form-label">Password</label>
-                        <input type="password" id="authPassword" class="form-input" placeholder="••••••••••••" required autocomplete="current-password">
+                        <input type="password" id="authPassword" class="form-input" placeholder="Enter authorized administrator credentials." required autocomplete="current-password">
                     </div>
                     <div id="authErrorMsg" style="display: none; font-size: 0.82rem; color: var(--threat); padding: 0.5rem; background: var(--threat-bg); border-radius: 6px;"></div>
                     <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
@@ -411,8 +411,14 @@
                     <strong style="color: var(--text-main); display: block; margin-bottom: 0.35rem;">Security Finding & Assessment</strong>
                     <p id="modalReason" style="font-size: 0.88rem; color: var(--text-muted);"></p>
                 </div>
-                <div id="modalAuthNotice" style="font-size: 0.8rem; color: var(--text-subtle); border-top: 1px solid var(--border-subtle); padding-top: 0.75rem;">
-                    <span>Authenticated Admin Telemetry: </span><span id="modalAuthStatus" style="font-weight: 600;">Standard Session</span>
+                <div id="modalAuthNotice" style="font-size: 0.8rem; color: var(--text-subtle); border-top: 1px solid var(--border-subtle); padding-top: 0.75rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
+                    <div>
+                        <span>Authenticated Admin Telemetry: </span><span id="modalAuthStatus" style="font-weight: 600;">Standard Session</span>
+                    </div>
+                    <button type="button" class="btn-action" id="btnLockAdminSession" style="display: none; padding: 0.35rem 0.75rem; font-size: 0.78rem;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right: 4px; vertical-align: -1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                        <span>Lock Admin Session</span>
+                    </button>
                 </div>
             </div>
         </div>

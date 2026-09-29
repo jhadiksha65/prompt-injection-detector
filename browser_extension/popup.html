@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prompt Security Extension</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
@@ -12,16 +13,28 @@
         <!-- Header -->
         <header class="ext-header">
             <div class="brand">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                </svg>
-                <span class="brand-name">PROMPT SECURITY</span>
+                <div class="brand-icon-wrap">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-name">Prompt Security</span>
+                    <span class="brand-badge">AI Assistant</span>
+                </div>
             </div>
-            <div class="connection-status" id="backendStatus">
-                <span class="status-dot" id="headerStatusDot"></span>
-                <span class="status-text" id="headerStatusText">Connecting...</span>
+            <div class="header-right">
+                <div class="connection-status" id="backendStatus">
+                    <span class="status-dot" id="headerStatusDot"></span>
+                    <span class="status-text" id="headerStatusText">Connecting...</span>
+                </div>
+                <button id="settingsToggle" class="btn-icon" title="Backend Settings" type="button" aria-label="Settings">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
             </div>
-            <button id="settingsToggle" class="btn-icon" title="Backend Settings" type="button">⚙️</button>
         </header>
 
         <!-- Settings Panel (hidden by default) -->
@@ -39,8 +52,15 @@
 
             <!-- Default Empty State -->
             <div id="emptyState" class="empty-state">
+                <div class="empty-icon-wrap">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                </div>
                 <h4>Ready to Scan</h4>
-                <p>Capture and analyze the current prompt for potential injection threats.</p>
+                <p>Capture and analyze the active AI prompt for potential prompt injection, leakage, and evasion threats.</p>
             </div>
 
             <!-- Result State (Hidden initially) -->
@@ -61,14 +81,14 @@
                     </div>
                     <div class="risk-scale">
                         <span>0 Safe</span>
-                        <span>50 Warning</span>
+                        <span>50 Review</span>
                         <span>100 Critical</span>
                     </div>
                 </div>
 
                 <!-- Analysis Summary -->
                 <div class="summary-section">
-                    <h4 class="section-label">Analysis Summary</h4>
+                    <h4 class="section-label">Security Finding & Assessment</h4>
                     <p id="reasonText" class="summary-text">No significant prompt injection detected.</p>
                 </div>
 
@@ -83,8 +103,8 @@
                         <span id="decisionVal" class="info-value decision-allow">ALLOW</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-label">Detection</span>
-                        <span class="info-value">Rule-Based + DistilBERT</span>
+                        <span class="info-label">Detection Engine</span>
+                        <span class="info-value">Dual-Layer (Rules + DistilBERT)</span>
                     </div>
                 </div>
                 
@@ -103,7 +123,13 @@
 
         <!-- Footer / Action -->
         <footer class="ext-footer">
-            <button id="scanBtn" class="btn btn-primary">Scan Current Prompt</button>
+            <button id="scanBtn" class="btn btn-primary">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <span>Scan Current Prompt</span>
+            </button>
             <button id="retryBtn" class="btn btn-outline" style="display:none;">Retry Connection</button>
         </footer>
 

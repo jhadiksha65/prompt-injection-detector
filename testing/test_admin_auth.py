@@ -226,5 +226,119 @@ class TestRuntimeDatabaseNotTracked(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "", "backend/security.db must not be tracked by git")
 
 
+class TestAdminProtectedDetailsSessionFlow(unittest.TestCase):
+    """Verifies the admin Protected Details session flow:
+    - locked session -> Protected Details requires authentication
+    - valid re-auth -> Protected Details accessible
+    - lock session -> Protected Details requires authentication again
+    - wrong credentials -> remains locked
+    """
+
+    def setUp(self):
+        os.environ["ADMIN_PASSWORD"] = TEST_ADMIN_PASSWORD
+        auth_module.init_admin_auth()
+        self.app = app.test_client()
+        self.app.testing = True
+
+        js_path = os.path.join(ROOT_DIR, "frontend", "static", "js", "app.js")
+        with open(js_path, "r", encoding="utf-8") as f:
+            self.js_code = f.read()
+
+        html_path = os.path.join(ROOT_DIR, "frontend", "index.html")
+        with open(html_path, "r", encoding="utf-8") as f:
+            self.html_code = f.read()
+
+    def test_locked_session_requires_authentication(self):
+        # 1. Lock the session explicitly on the backend
+        lock_res = self.app.post("/api/lock")
+        self.assertEqual(lock_res.status_code, 200)
+
+        # 2. Verify backend user-status reflects locked state
+        status_res = self.app.get("/api/user-status")
+        status_data = json.loads(status_res.data)
+        self.assertTrue(status_data["is_locked"])
+
+        # 3. Direct unauthenticated request to protected admin data fails with 401
+        inc_res = self.app.get("/api/incidents")
+        self.assertEqual(inc_res.status_code, 401)
+
+        # 4. Frontend static checks:
+        # Protected details triggers in-app authModal when unauthenticated (adminAuthToken is falsy)
+        self.assertIn("btnViewProtectedDetails", self.js_code)
+        self.assertIn("authModal", self.js_code)
+        self.assertIn("btnLockAdminSession", self.html_code)
+        self.assertIn("Lock Admin Session", self.html_code)
+
+    def test_valid_reauth_makes_protected_details_accessible(self):
+        # 1. Start locked
+        self.app.post("/api/lock")
+
+        # 2. Perform valid re-auth via /api/reauth
+        reauth_res = self.app.post(
+            "/api/reauth",
+            json={"username": auth_module.ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD}
+        )
+        self.assertEqual(reauth_res.status_code, 200)
+        reauth_data = json.loads(reauth_res.data)
+        self.assertTrue(reauth_data["success"])
+        self.assertFalse(reauth_data["is_locked"])
+
+        # 3. Backend user-status is now unlocked
+        status_res = self.app.get("/api/user-status")
+        status_data = json.loads(status_res.data)
+        self.assertFalse(status_data["is_locked"])
+
+        # 4. Frontend sets adminAuthToken, reveals Lock Admin Session, and marks Unlocked (Administrator)
+        self.assertIn("adminAuthToken = btoa(username + ':' + password)", self.js_code)
+        self.assertIn("Unlocked (Administrator)", self.js_code)
+        self.assertIn("btnLockAdminSession.style.display = adminAuthToken ? 'inline-flex' : 'none'", self.js_code)
+
+    def test_lock_session_requires_authentication_again(self):
+        # 1. Unlock first
+        self.app.post(
+            "/api/reauth",
+            json={"username": auth_module.ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD}
+        )
+
+        # 2. Call lock session
+        lock_res = self.app.post("/api/lock")
+        self.assertEqual(lock_res.status_code, 200)
+        lock_data = json.loads(lock_res.data)
+        self.assertTrue(lock_data["success"])
+        self.assertTrue(lock_data["is_locked"])
+
+        # 3. User status is locked again
+        status_res = self.app.get("/api/user-status")
+        status_data = json.loads(status_res.data)
+        self.assertTrue(status_data["is_locked"])
+
+        # 4. Frontend logic: clicking btnLockAdminSession clears adminAuthToken and sends /api/lock
+        self.assertIn("btnLockAdminSession.addEventListener('click'", self.js_code)
+        self.assertIn("adminAuthToken = null;", self.js_code)
+        self.assertIn("fetch('/api/lock'", self.js_code)
+
+    def test_wrong_credentials_remains_locked(self):
+        # 1. Start locked
+        self.app.post("/api/lock")
+
+        # 2. Attempt re-auth with invalid password
+        bad_res = self.app.post(
+            "/api/reauth",
+            json={"username": auth_module.ADMIN_USERNAME, "password": "wrong-password-999"}
+        )
+        self.assertEqual(bad_res.status_code, 401)
+        bad_data = json.loads(bad_res.data)
+        self.assertFalse(bad_data["success"])
+        self.assertTrue(bad_data["is_locked"])
+
+        # 3. Backend remains locked
+        status_res = self.app.get("/api/user-status")
+        status_data = json.loads(status_res.data)
+        self.assertTrue(status_data["is_locked"])
+
+        # 4. Frontend logic: wrong credentials displays error in authErrorMsg and does NOT set adminAuthToken
+        self.assertIn("authErrorMsg.textContent = data.error", self.js_code)
+
+
 if __name__ == "__main__":
     unittest.main()

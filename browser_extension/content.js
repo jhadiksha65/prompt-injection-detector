@@ -15,39 +15,107 @@ let isSubmissionApproved = false;
 let lastInterceptionContext = null; // { type: "keydown" | "click", element }
 
 /**
+ * Detects whether a text fragment is merely an application placeholder or watermark.
+ */
+function isPlaceholderText(str) {
+    if (!str) return true;
+    const clean = str.trim().toLowerCase();
+    return (
+        clean === "message chatgpt" ||
+        clean === "message chatgpt..." ||
+        clean === "message claude" ||
+        clean === "message claude..." ||
+        clean === "ask gemini" ||
+        clean === "ask gemini..." ||
+        clean === "type a message" ||
+        clean === "type a message..." ||
+        clean === "ask anything" ||
+        clean === "ask anything..."
+    );
+}
+
+/**
+ * Extracts prompt text cleanly from an element, supporting ProseMirror paragraphs,
+ * textareas, inputs, and contenteditable containers across LLM platforms.
+ */
+function extractCleanElementText(el) {
+    if (!el) return "";
+
+    // 1. Textarea / Input value
+    if (typeof el.value === "string" && el.value.trim()) {
+        return el.value.trim();
+    }
+
+    // 2. ProseMirror / ContentEditable paragraph structure (ChatGPT, Claude, etc.)
+    const paragraphs = el.querySelectorAll ? el.querySelectorAll("p") : [];
+    if (paragraphs && paragraphs.length > 0) {
+        const lines = [];
+        for (const p of paragraphs) {
+            // Ignore placeholder paragraphs
+            if (p.classList && p.classList.contains("placeholder") && !p.textContent.trim()) {
+                continue;
+            }
+            const pt = (p.textContent || p.innerText || "").trim();
+            if (pt && !isPlaceholderText(pt)) {
+                lines.push(pt);
+            }
+        }
+        if (lines.length > 0) {
+            return lines.join("\n").trim();
+        }
+    }
+
+    // 3. Fallback to textContent and innerText
+    // In Chromium, innerText on unfocused/blurred tabs or ProseMirror divs
+    // can return "\n" or empty string while textContent contains the text.
+    const tc = (el.textContent || "").trim();
+    const it = (el.innerText || "").trim();
+
+    let candidate = "";
+    if (tc && !isPlaceholderText(tc)) {
+        candidate = tc;
+    } else if (it && !isPlaceholderText(it)) {
+        candidate = it;
+    }
+
+    return candidate;
+}
+
+/**
  * Extracts prompt text from various web LLM DOM structures (ChatGPT, Claude, Gemini).
  */
 function getPromptText() {
-    // 1. Check focused element if active
+    // 1. Check focused element if active and not body/html
     const active = document.activeElement;
-    if (active) {
-        if (active.tagName === "TEXTAREA" || active.tagName === "INPUT") {
-            if (active.value && active.value.trim()) return active.value.trim();
-        }
-        if (active.isContentEditable || active.getAttribute("contenteditable") === "true") {
-            const activeText = active.innerText || active.textContent || "";
-            if (activeText.trim()) return activeText.trim();
+    if (active && active !== document.body && active !== document.documentElement) {
+        if (active.isContentEditable || active.getAttribute("contenteditable") === "true" || active.tagName === "TEXTAREA" || active.tagName === "INPUT") {
+            const activeText = extractCleanElementText(active);
+            if (activeText) return activeText;
         }
     }
 
-    // 2. Specific ChatGPT prompt container (#prompt-textarea, ProseMirror)
-    const chatgptTextarea = document.getElementById("prompt-textarea");
-    if (chatgptTextarea) {
-        const text = chatgptTextarea.innerText || chatgptTextarea.textContent || (chatgptTextarea.value ? chatgptTextarea.value : "");
-        if (text && text.trim()) return text.trim();
-    }
+    // 2. Specific ChatGPT & web LLM prompt container selectors
+    const selectors = [
+        '#prompt-textarea',
+        '[data-testid="prompt-textarea"]',
+        'form div.ProseMirror',
+        'div.ProseMirror[contenteditable="true"]',
+        'div.ProseMirror',
+        'div[contenteditable="true"][role="textbox"]',
+        'div[contenteditable="true"]',
+        'form textarea',
+        'textarea[data-id="root"]',
+        'textarea',
+        'rich-textarea',
+        '[role="textbox"]'
+    ];
 
-    // 3. Any ContentEditable / ProseMirror elements
-    const editables = document.querySelectorAll('#prompt-textarea, .ProseMirror, div[contenteditable="true"], p[contenteditable="true"], [contenteditable="true"], [role="textbox"], rich-textarea');
-    for (const el of editables) {
-        const text = el.innerText || el.textContent || "";
-        if (text && text.trim()) return text.trim();
-    }
-
-    // 4. Standard textarea fallback
-    const textareas = document.querySelectorAll("textarea");
-    for (const ta of textareas) {
-        if (ta.value && ta.value.trim()) return ta.value.trim();
+    for (const sel of selectors) {
+        const elements = document.querySelectorAll(sel);
+        for (const el of elements) {
+            const text = extractCleanElementText(el);
+            if (text) return text;
+        }
     }
 
     return "";
@@ -144,7 +212,7 @@ function showSecurityModal(backendData, onDismiss) {
                     Critical prompt injection attempt detected. Enter authorized credentials to unlock session and override.
                 </p>
                 <div style="display: flex; gap: 8px;">
-                    <input id="pid-auth-pwd" type="password" placeholder="Enter admin password" style="
+                    <input id="pid-auth-pwd" type="password" placeholder="Enter authorized administrator credentials." style="
                         flex: 1;
                         background: #1e293b;
                         border: 1px solid #475569;
