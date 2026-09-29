@@ -92,18 +92,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const errorState = document.getElementById('errorState');
     const resultContainer = document.getElementById('resultContainer');
 
-    // Attachment Elements
+    // Attachment & Input Elements
     const btnAttachFile = document.getElementById('btnAttachFile');
+    const btnClearPrompt = document.getElementById('btnClearPrompt');
     const fileInput = document.getElementById('fileInput');
     const attachmentChipContainer = document.getElementById('attachmentChipContainer');
     const attachmentFileName = document.getElementById('attachmentFileName');
     const attachmentFileSize = document.getElementById('attachmentFileSize');
     const btnRemoveAttachment = document.getElementById('btnRemoveAttachment');
+    const inputTransparencyBadge = document.getElementById('inputTransparencyBadge');
+    const transparencyText = document.getElementById('transparencyText');
 
     // Result Card Elements
     const resultCard = document.getElementById('resultCard');
     const resultHeading = document.getElementById('resultHeading');
     const resultDesc = document.getElementById('resultDesc');
+    const resultScopeBadge = document.getElementById('resultScopeBadge');
     const resultTime = document.getElementById('resultTime');
     const resultIcon = document.getElementById('resultIcon');
     const resRiskScoreVal = document.getElementById('resRiskScoreVal');
@@ -116,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Result Actions
     const btnEditPrompt = document.getElementById('btnEditPrompt');
     const btnSafer = document.getElementById('btnSafer');
+    const btnViewProtectedDetails = document.getElementById('btnViewProtectedDetails');
     const btnNewAnalysis = document.getElementById('btnNewAnalysis');
     const btnViewDetails = document.getElementById('btnViewDetails');
 
@@ -243,7 +248,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('hashchange', handleRoute);
     handleRoute();
 
-    // --- Character Counter ---
+    let lastScopeText = 'Security result: Based on prompt';
+
+    // --- Character Counter & Keyboard Shortcuts ---
     if (promptInput && charCount) {
         promptInput.addEventListener('input', () => {
             const len = promptInput.value.length;
@@ -254,6 +261,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 charCount.className = 'char-counter warning';
             } else {
                 charCount.className = 'char-counter';
+            }
+        });
+
+        // Cmd/Ctrl + Enter keyboard shortcut to trigger analysis
+        promptInput.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                analyzePrompt();
+            }
+        });
+    }
+
+    // Clear input button
+    if (btnClearPrompt) {
+        btnClearPrompt.addEventListener('click', () => {
+            if (promptInput) {
+                promptInput.value = '';
+                promptInput.dispatchEvent(new Event('input'));
+                promptInput.focus();
             }
         });
     }
@@ -347,6 +373,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (prompt.length > MAX_CHARS) {
             showToast(`Prompt exceeds maximum limit of ${MAX_CHARS} characters`);
             return;
+        }
+
+        // Update Attachment Transparency Indicator
+        let analyzedTargetScope = 'Prompt';
+        if (prompt && attachedFile) {
+            analyzedTargetScope = `Prompt + Document content ("${attachedFile.name}")`;
+            lastScopeText = `Security result: Based on prompt + document content ("${attachedFile.name}")`;
+        } else if (attachedFile) {
+            analyzedTargetScope = `Document content ("${attachedFile.name}")`;
+            lastScopeText = `Security result: Based on document content ("${attachedFile.name}")`;
+        } else {
+            analyzedTargetScope = 'Prompt';
+            lastScopeText = 'Security result: Based on prompt';
+        }
+
+        if (inputTransparencyBadge && transparencyText) {
+            transparencyText.textContent = `Analyzed input: ${analyzedTargetScope}`;
+            inputTransparencyBadge.style.display = 'inline-flex';
         }
 
         // Loading State
@@ -500,6 +544,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resultTime) resultTime.textContent = 'Analyzed just now';
         if (resultIcon) resultIcon.innerHTML = iconSvg;
 
+        if (resultScopeBadge) {
+            resultScopeBadge.textContent = lastScopeText || 'Security result: Based on prompt';
+            resultScopeBadge.style.display = 'inline-block';
+        }
+
         if (resRiskScoreVal) resRiskScoreVal.textContent = Math.round(riskScore);
         if (riskMeterFill) {
             riskMeterFill.style.width = Math.min(100, Math.max(5, riskScore)) + '%';
@@ -512,7 +561,7 @@ document.addEventListener('DOMContentLoaded', () => {
             resDecision.className = `badge-rec ${recClass}`;
         }
 
-        // "Why this was flagged" Section
+        // "Why this was flagged" / Lightweight Explainability Section
         if (flaggedSection && flaggedList) {
             if (userRec === 'BLOCK' || userRec === 'REVIEW') {
                 flaggedSection.style.display = 'block';
@@ -522,27 +571,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 const lowerReason = reason.toLowerCase();
                 const lowerAttack = attackType.toLowerCase();
 
-                if (lowerReason.includes('override') || lowerAttack.includes('direct') || lowerReason.includes('directive')) {
-                    bullets.push('Attempts to override existing instructions');
+                if (lowerReason.includes('override') || lowerAttack.includes('direct') || lowerReason.includes('directive') || lowerReason.includes('ignore')) {
+                    bullets.push('Instruction Override: Attempts to override instructions or system behavior');
                 }
-                if (lowerReason.includes('system prompt') || lowerAttack.includes('leakage') || lowerReason.includes('verbatim')) {
-                    bullets.push('Attempts to extract system prompts or internal instructions');
+                if (lowerReason.includes('system prompt') || lowerAttack.includes('leak') || lowerReason.includes('reveal') || lowerReason.includes('extract') || lowerReason.includes('verbatim')) {
+                    bullets.push('Prompt Extraction: Attempts to access or reveal internal system instructions');
                 }
-                if (lowerAttack.includes('jailbreak') || lowerReason.includes('dan') || lowerReason.includes('unrestricted')) {
-                    bullets.push('Attempts to bypass AI safety guardrails and policy constraints');
+                if (lowerAttack.includes('jailbreak') || lowerReason.includes('dan') || lowerReason.includes('unrestricted') || lowerAttack.includes('role') || lowerReason.includes('persona')) {
+                    bullets.push('Unauthorized Role-Playing: Attempts to bypass boundaries via simulated persona');
                 }
-                if (lowerAttack.includes('goal') || lowerReason.includes('hijacking') || lowerReason.includes('task deviation')) {
-                    bullets.push("Attempts to deviate or hijack the AI's intended task");
+                if (lowerAttack.includes('goal') || lowerReason.includes('hijack') || lowerReason.includes('deviation') || lowerReason.includes('task')) {
+                    bullets.push("Goal Manipulation: Attempts to steer the AI away from its intended task");
                 }
 
                 if (bullets.length === 0) {
-                    bullets.push('Contains suspicious instruction patterns');
+                    bullets.push('Suspicious Pattern: Contains adversarial phrasing or injection markers');
                     bullets.push('Could cause unintended AI behavior');
                 } else if (bullets.length < 2) {
-                    bullets.push('Could cause unintended AI behavior');
+                    bullets.push('Suspicious Pattern: Contains adversarial phrasing or injection markers');
                 }
 
-                bullets.forEach(b => {
+                bullets.slice(0, 3).forEach(b => {
                     const li = document.createElement('li');
                     li.textContent = b;
                     flaggedList.appendChild(li);
@@ -555,6 +604,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Safer Version Action Button
         if (btnSafer) {
             btnSafer.style.display = (userRec === 'BLOCK' || userRec === 'REVIEW') ? 'inline-flex' : 'none';
+        }
+
+        // Contextual Protected Details Button (Only for high risk / blocked results)
+        if (btnViewProtectedDetails) {
+            if (userRec === 'BLOCK' || riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
+                btnViewProtectedDetails.style.display = 'inline-flex';
+            } else {
+                btnViewProtectedDetails.style.display = 'none';
+            }
         }
 
         resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -666,10 +724,25 @@ document.addEventListener('DOMContentLoaded', () => {
             attachedFile = null;
             if (fileInput) fileInput.value = '';
             if (attachmentChipContainer) attachmentChipContainer.style.display = 'none';
+            if (inputTransparencyBadge) inputTransparencyBadge.style.display = 'none';
             if (resultContainer) resultContainer.style.display = 'none';
             lastAnalysisData = null;
             lastAnalyzedPrompt = '';
+            lastScopeText = 'Security result: Based on prompt';
             showToast('Started new analysis');
+        });
+    }
+
+    // 4. View Protected Details (Contextual Auth / Audit Trigger)
+    if (btnViewProtectedDetails) {
+        btnViewProtectedDetails.addEventListener('click', () => {
+            if (adminAuthToken) {
+                if (btnViewDetails) btnViewDetails.click();
+            } else {
+                if (authErrorMsg) authErrorMsg.style.display = 'none';
+                if (authModal) authModal.style.display = 'flex';
+                if (authUsername) authUsername.focus();
+            }
         });
     }
 
@@ -827,6 +900,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             };
                         });
                     }
+                } else if (res.status === 401) {
+                    adminAuthToken = null;
                 }
             }
         } catch (e) {
