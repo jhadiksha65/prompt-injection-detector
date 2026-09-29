@@ -1,21 +1,38 @@
 /**
- * Prompt Security — Modern SaaS Web Application Client
+ * Prompt Security — AI Assistant Experience Client
  * Tagline: "Safer Prompts. Smarter AI."
  * 
  * Features:
- * - Real /health system status polling
- * - Secure prompt submission via /secure-prompt
- * - Normal end-user friendly risk translation (Safe / Review / Threat)
- * - Dynamic Recent Analyses & Filterable History
- * - Accessible modals, toast alerts, and light/dark theme toggle
+ * - AI Assistant-style prompt & document analysis
+ * - Seamless file attachments (.pdf, .doc, .docx, .txt, .png, .jpg, .jpeg)
+ * - Persistent results (closing block dialog keeps report & prompt intact)
+ * - Authenticated admin access via existing /api/reauth and /api/incidents
+ * - Conversation-style history with reloadable analyses
+ * - Full light/dark mode support
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-    // --- State & Constants ---
+    // --- Constants & State ---
     const MAX_CHARS = 5000;
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB (matching backend ceiling)
+    const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.txt', '.png', '.jpg', '.jpeg'];
     const HIGH_CRITICAL_LEVELS = ['HIGH', 'CRITICAL'];
 
-    // Default sample data per specification (overridden/augmented by user session)
+    let attachedFile = null;
+    let lastAnalysisData = null;
+    let lastAnalyzedPrompt = '';
+    let adminAuthToken = null; // Session-only basic auth token in memory
+
+    // Saved session analyses
+    let sessionAnalyses = [];
+    try {
+        const saved = localStorage.getItem('prompt_security_analyses');
+        if (saved) sessionAnalyses = JSON.parse(saved);
+    } catch (e) {
+        sessionAnalyses = [];
+    }
+
+    // Default sample data per specification
     const DEFAULT_HISTORY = [
         {
             id: 'REC-01',
@@ -63,16 +80,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     ];
 
-    let sessionAnalyses = [];
-    try {
-        const saved = localStorage.getItem('prompt_security_analyses');
-        if (saved) sessionAnalyses = JSON.parse(saved);
-    } catch (e) {
-        sessionAnalyses = [];
-    }
-
     // --- DOM Elements ---
-    const navLinks = document.querySelectorAll('.nav-link, .nav-tab-link');
+    const navLinks = document.querySelectorAll('.nav-tab-link');
     const views = document.querySelectorAll('.view-section');
     const promptInput = document.getElementById('promptInput');
     const charCount = document.getElementById('charCount');
@@ -82,41 +91,59 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadingState = document.getElementById('loadingState');
     const errorState = document.getElementById('errorState');
     const resultContainer = document.getElementById('resultContainer');
-    
+
+    // Attachment Elements
+    const btnAttachFile = document.getElementById('btnAttachFile');
+    const fileInput = document.getElementById('fileInput');
+    const attachmentChipContainer = document.getElementById('attachmentChipContainer');
+    const attachmentFileName = document.getElementById('attachmentFileName');
+    const attachmentFileSize = document.getElementById('attachmentFileSize');
+    const btnRemoveAttachment = document.getElementById('btnRemoveAttachment');
+
     // Result Card Elements
-    const resultCard = document.getElementById('resultCard') || document.getElementById('securityCard');
-    const resultHeading = document.getElementById('resultHeading') || document.getElementById('scDecisionText');
+    const resultCard = document.getElementById('resultCard');
+    const resultHeading = document.getElementById('resultHeading');
     const resultDesc = document.getElementById('resultDesc');
     const resultTime = document.getElementById('resultTime');
-    const resultIcon = document.getElementById('resultIcon') || document.getElementById('scIcon');
+    const resultIcon = document.getElementById('resultIcon');
     const resRiskScoreVal = document.getElementById('resRiskScoreVal');
     const riskMeterFill = document.getElementById('riskMeterFill');
     const resRiskLevel = document.getElementById('resRiskLevel');
     const resDecision = document.getElementById('resDecision');
-    const resClassification = document.getElementById('resClassification');
     const flaggedSection = document.getElementById('flaggedSection');
     const flaggedList = document.getElementById('flaggedList');
-    const saferCard = document.getElementById('saferCard');
 
-    // Details & Modals
+    // Result Actions
+    const btnEditPrompt = document.getElementById('btnEditPrompt');
+    const btnSafer = document.getElementById('btnSafer');
+    const btnNewAnalysis = document.getElementById('btnNewAnalysis');
     const btnViewDetails = document.getElementById('btnViewDetails');
+
+    // Modals
     const detailsModal = document.getElementById('detailsModal');
     const detailsModalClose = document.getElementById('detailsModalClose');
-    const btnSafer = document.getElementById('btnSafer');
     const saferModal = document.getElementById('saferModal');
     const saferModalClose = document.getElementById('saferModalClose');
     const btnCopySafer = document.getElementById('btnCopySafer');
     const saferPromptText = document.getElementById('saferPromptText');
 
+    // Admin Auth Modal
+    const btnAdminAuthModal = document.getElementById('btnAdminAuthModal');
+    const authModal = document.getElementById('authModal');
+    const authModalClose = document.getElementById('authModalClose');
+    const authCancelBtn = document.getElementById('authCancelBtn');
+    const authForm = document.getElementById('authForm');
+    const authUsername = document.getElementById('authUsername');
+    const authPassword = document.getElementById('authPassword');
+    const authErrorMsg = document.getElementById('authErrorMsg');
+
+    // Block Dialog
+    const blockDialogOverlay = document.getElementById('blockDialogOverlay');
+    const blockDialogRetryBtn = document.getElementById('blockDialogRetryBtn');
+    const blockDialogCloseBtn = document.getElementById('blockDialogCloseBtn');
+
     // Theme Toggle
     const themeToggleBtn = document.getElementById('themeToggleBtn');
-
-    // Mobile Navigation
-    const mobileMenuToggle = document.getElementById('mobileMenuToggle');
-    const sidebar = document.getElementById('sidebar');
-
-    // Accordion
-    const techAccordion = document.getElementById('techAccordion');
 
     // --- Theme Management ---
     function initTheme() {
@@ -138,32 +165,30 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!themeToggleBtn) return;
         if (theme === 'dark') {
             themeToggleBtn.innerHTML = `
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="5"></circle>
                     <line x1="12" y1="1" x2="12" y2="3"></line>
                     <line x1="12" y1="21" x2="12" y2="23"></line>
                     <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
                     <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
                     <line x1="1" y1="12" x2="3" y2="12"></line>
-                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="21" y1="21" x2="23" y2="12"></line>
                     <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
                     <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
                 </svg>`;
-            themeToggleBtn.setAttribute('title', 'Switch to Light Mode');
         } else {
             themeToggleBtn.innerHTML = `
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                 </svg>`;
-            themeToggleBtn.setAttribute('title', 'Switch to Dark Mode');
         }
     }
 
     if (themeToggleBtn) themeToggleBtn.addEventListener('click', toggleTheme);
     initTheme();
 
-    // --- Toast Notification Helper ---
-    function showToast(message, type = 'info') {
+    // --- Toast Notifications ---
+    function showToast(message) {
         let container = document.getElementById('toastContainer');
         if (!container) {
             container = document.createElement('div');
@@ -174,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const toast = document.createElement('div');
         toast.className = 'toast';
         toast.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
             <span>${message}</span>
         `;
         container.appendChild(toast);
@@ -186,17 +211,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 3000);
     }
 
-    // --- Tab Navigation & Routing ---
+    // --- Navigation Routing ---
     function handleRoute() {
         let hash = window.location.hash.substring(1);
-        if (!hash || !['analyzer', 'history', 'howItWorks', 'about'].includes(hash)) {
+        if (!hash || !['analyzer', 'history'].includes(hash)) {
             hash = 'analyzer';
             history.replaceState(null, null, '#analyzer');
-        }
-
-        // Close mobile drawer on route change
-        if (sidebar && sidebar.classList.contains('open')) {
-            sidebar.classList.remove('open');
         }
 
         navLinks.forEach(l => {
@@ -213,9 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const targetView = document.getElementById(hash + 'View');
-        if (targetView) {
-            targetView.classList.add('active');
-        }
+        if (targetView) targetView.classList.add('active');
 
         if (hash === 'history') {
             loadHistory();
@@ -225,18 +243,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('hashchange', handleRoute);
     handleRoute();
 
-    // Mobile Hamburger Toggle
-    if (mobileMenuToggle && sidebar) {
-        mobileMenuToggle.addEventListener('click', () => {
-            sidebar.classList.toggle('open');
-        });
-    }
-
     // --- Character Counter ---
     if (promptInput && charCount) {
         promptInput.addEventListener('input', () => {
             const len = promptInput.value.length;
-            charCount.textContent = `${len} / ${MAX_CHARS} characters`;
+            charCount.textContent = `${len} / ${MAX_CHARS}`;
             if (len > MAX_CHARS) {
                 charCount.className = 'char-counter limit';
             } else if (len > MAX_CHARS * 0.9) {
@@ -263,59 +274,52 @@ document.addEventListener('DOMContentLoaded', () => {
                 promptInput.value = EXAMPLE_PROMPTS[type];
                 promptInput.dispatchEvent(new Event('input'));
                 promptInput.focus();
-                showToast(`Loaded example: ${chip.textContent.trim()}`);
+                showToast(`Loaded example prompt`);
             }
         });
     });
 
-    // --- Live System Health Polling ---
-    async function checkSystemStatus() {
-        const sidebarDot = document.getElementById('sidebarStatusDot');
-        const sidebarTitle = document.getElementById('sidebarStatusTitle');
-        const sidebarSub = document.getElementById('sidebarStatusSub');
-        
-        const cardDot1 = document.getElementById('cardDot1');
-        const cardDot2 = document.getElementById('cardDot2');
-        const cardDot3 = document.getElementById('cardDot3');
-        const headerDot = document.getElementById('headerStatusDot');
-        const headerText = document.getElementById('headerStatusText');
+    // --- File Attachment Handling ---
+    if (btnAttachFile && fileInput) {
+        btnAttachFile.addEventListener('click', () => {
+            fileInput.click();
+        });
 
-        try {
-            const res = await fetch('/health');
-            if (res.ok) {
-                const data = await res.json();
-                const isOnline = data.status === 'ok' && !data.degraded;
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (!file) return;
 
-                if (sidebarDot) sidebarDot.className = 'status-dot-pulse online';
-                if (sidebarTitle) sidebarTitle.textContent = isOnline ? 'System Online' : 'System Degraded';
-                if (sidebarSub) sidebarSub.textContent = isOnline ? 'All services running' : 'Operating in reduced mode';
+            const name = file.name;
+            const ext = '.' + name.split('.').pop().toLowerCase();
 
-                if (cardDot1) cardDot1.className = 'status-dot';
-                if (cardDot2) cardDot2.className = 'status-dot';
-                if (cardDot3) cardDot3.className = 'status-dot';
-
-                if (headerDot) headerDot.className = 'status-dot online';
-                if (headerText) headerText.textContent = '● Online';
-            } else {
-                throw new Error('Health returned non-200');
+            if (!ALLOWED_EXTENSIONS.includes(ext)) {
+                showToast(`Unsupported file type '${ext}'. Supported: PDF, DOC, DOCX, TXT, PNG, JPG`);
+                fileInput.value = '';
+                return;
             }
-        } catch (e) {
-            if (sidebarDot) sidebarDot.className = 'status-dot-pulse offline';
-            if (sidebarTitle) sidebarTitle.textContent = 'Service Offline';
-            if (sidebarSub) sidebarSub.textContent = 'Unable to connect to security API';
 
-            if (cardDot1) cardDot1.className = 'status-dot offline';
-            if (cardDot2) cardDot2.className = 'status-dot offline';
-            if (cardDot3) cardDot3.className = 'status-dot offline';
+            if (file.size > MAX_FILE_SIZE) {
+                showToast(`File exceeds maximum size of 5 MB.`);
+                fileInput.value = '';
+                return;
+            }
 
-            if (headerDot) headerDot.className = 'status-dot offline';
-            if (headerText) headerText.textContent = '● Offline';
-        }
+            attachedFile = file;
+            attachmentFileName.textContent = file.name;
+            const sizeKb = Math.round(file.size / 1024);
+            attachmentFileSize.textContent = sizeKb > 1024 ? `(${ (sizeKb / 1024).toFixed(1) } MB)` : `(${sizeKb} KB)`;
+            attachmentChipContainer.style.display = 'flex';
+            showToast(`Attached ${file.name}`);
+        });
     }
 
-    checkSystemStatus();
-    // Periodically update health every 30 seconds
-    setInterval(checkSystemStatus, 30000);
+    if (btnRemoveAttachment) {
+        btnRemoveAttachment.addEventListener('click', () => {
+            attachedFile = null;
+            if (fileInput) fileInput.value = '';
+            attachmentChipContainer.style.display = 'none';
+        });
+    }
 
     // --- Form Submission & Real Backend Analysis ---
     if (analyzeForm) {
@@ -331,13 +335,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    let lastAnalysisData = null;
-    let lastAnalyzedPrompt = '';
-
     async function analyzePrompt() {
         const prompt = promptInput ? promptInput.value.trim() : '';
-        if (!prompt) {
-            showToast('Please enter a prompt to analyze');
+
+        if (!prompt && !attachedFile) {
+            showToast('Please enter a prompt or attach a document');
             if (promptInput) promptInput.focus();
             return;
         }
@@ -347,64 +349,80 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Set Loading State
+        // Loading State
         if (resultContainer) resultContainer.style.display = 'none';
         if (errorState) errorState.style.display = 'none';
         if (loadingState) loadingState.style.display = 'flex';
         hideBlockDialog();
+
         if (analyzeBtn) {
             analyzeBtn.disabled = true;
             analyzeBtn.innerHTML = `
-                <div class="spinner-ring" style="width:16px;height:16px;border-width:2px;"></div>
+                <div class="spinner-ring" style="width:14px;height:14px;border-width:2px;"></div>
                 <span>Analyzing...</span>
             `;
         }
 
         try {
-            // Full dual-layer pipeline: Layer 1 -> LLM -> Layer 2 -> final response.
-            // Preserves static contract tested by test_web_ui_integration.py
-            const res = await fetch('/secure-prompt', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt })
-            });
+            let res;
+            if (attachedFile) {
+                // Submit multipart/form-data with prompt and file attachment
+                const formData = new FormData();
+                if (prompt) formData.append('prompt', prompt);
+                formData.append('attachment', attachedFile);
 
-            if (!res.ok) throw new Error('API request failed');
+                res = await fetch('/secure-prompt', {
+                    method: 'POST',
+                    body: formData
+                });
+            } else {
+                // Standard JSON prompt submission
+                // Preserves exact contract tested by test_web_ui_integration.py
+                res = await fetch('/secure-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+            }
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Security analysis failed');
+            }
 
             const data = await res.json();
             lastAnalysisData = data;
-            lastAnalyzedPrompt = prompt;
+            lastAnalyzedPrompt = prompt || (attachedFile ? `[Attachment: ${attachedFile.name}]` : '');
 
-            renderResult(data, prompt);
-            recordRecentAnalysis(data, prompt);
+            renderResult(data, lastAnalyzedPrompt);
+            recordRecentAnalysis(data, lastAnalyzedPrompt);
 
         } catch (err) {
             console.error('Analysis error:', err);
             if (loadingState) loadingState.style.display = 'none';
             if (errorState) errorState.style.display = 'flex';
-            showToast('Security analysis service unavailable', 'error');
+            showToast('Unable to analyze this prompt right now.');
         } finally {
             if (analyzeBtn) {
                 analyzeBtn.disabled = false;
                 analyzeBtn.innerHTML = `
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    <span>Analyze</span>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                     </svg>
-                    <span>Analyze Prompt</span>
                 `;
             }
         }
     }
 
-    // --- Render Result Card ---
+    // --- Render Analysis Result Card ---
     function renderResult(data, promptText) {
         if (loadingState) loadingState.style.display = 'none';
         if (resultContainer) resultContainer.style.display = 'block';
 
         const layer1 = data.layer1 || data;
-        const layer2 = data.layer2 || {};
         const overallDecision = data.final_decision || layer1.decision || 'UNKNOWN';
-
         const riskLevel = layer1.risk_level || 'LOW';
         const riskScore = parseFloat(layer1.risk_score || 0);
         const classification = layer1.classification || layer1.attack_type || 'BENIGN';
@@ -432,14 +450,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Apply Status Variation
-        const card = document.getElementById('resultCard') || document.getElementById('securityCard');
-        if (card) {
-            card.classList.remove('status-safe', 'status-review', 'status-threat', 'safe', 'warning', 'block');
+        if (resultCard) {
+            resultCard.classList.remove('status-safe', 'status-review', 'status-threat');
         }
 
-        // Map Decision to End-User Friendly Presentation
         let userHeading = 'Prompt Looks Safe';
-        let userDesc = "We didn't find signs of malicious prompt manipulation.";
+        let userDesc = 'Your prompt does not show signs of malicious prompt manipulation.';
         let userRec = 'ALLOW';
         let recClass = 'allow';
         let statusClass = 'status-safe';
@@ -452,7 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (overallDecision === 'BLOCK' || riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
             userHeading = 'Threat Detected';
-            userDesc = 'This prompt may contain malicious instructions and could be used to manipulate or bypass the AI’s intended behavior.';
+            userDesc = "This prompt may contain instructions designed to manipulate or bypass the AI's intended behavior.";
             userRec = 'BLOCK';
             recClass = 'block';
             statusClass = 'status-threat';
@@ -478,40 +494,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 </svg>`;
         }
 
-        if (card) {
-            card.classList.add(statusClass);
-        }
-
-        // Set Heading & Description
-        const headingEl = document.getElementById('resultHeading') || document.getElementById('scDecisionText');
-        if (headingEl) headingEl.textContent = userHeading;
+        if (resultCard) resultCard.classList.add(statusClass);
+        if (resultHeading) resultHeading.textContent = userHeading;
         if (resultDesc) resultDesc.textContent = userDesc;
         if (resultTime) resultTime.textContent = 'Analyzed just now';
+        if (resultIcon) resultIcon.innerHTML = iconSvg;
 
-        const iconEl = document.getElementById('resultIcon') || document.getElementById('scIcon');
-        if (iconEl) iconEl.innerHTML = iconSvg;
-
-        // Metrics: Risk Score, Risk Level, Recommendation
-        const scoreEl = document.getElementById('resRiskScoreVal');
-        if (scoreEl) scoreEl.textContent = Math.round(riskScore);
-
+        if (resRiskScoreVal) resRiskScoreVal.textContent = Math.round(riskScore);
         if (riskMeterFill) {
-            riskMeterFill.style.width = Math.min(100, Math.max(4, riskScore)) + '%';
+            riskMeterFill.style.width = Math.min(100, Math.max(5, riskScore)) + '%';
             riskMeterFill.className = `risk-bar-fill ${meterFillClass}`;
         }
 
-        const riskLevelEl = document.getElementById('resRiskLevel');
-        if (riskLevelEl) riskLevelEl.textContent = riskLevel;
-
-        const recEl = document.getElementById('resDecision');
-        if (recEl) {
-            recEl.textContent = userRec;
-            recEl.className = `badge-rec ${recClass}`;
+        if (resRiskLevel) resRiskLevel.textContent = riskLevel;
+        if (resDecision) {
+            resDecision.textContent = userRec;
+            resDecision.className = `badge-rec ${recClass}`;
         }
 
-        if (resClassification) resClassification.textContent = classification;
-
-        // "Why was this flagged?" Section
+        // "Why this was flagged" Section
         if (flaggedSection && flaggedList) {
             if (userRec === 'BLOCK' || userRec === 'REVIEW') {
                 flaggedSection.style.display = 'block';
@@ -525,21 +526,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     bullets.push('Attempts to override existing instructions');
                 }
                 if (lowerReason.includes('system prompt') || lowerAttack.includes('leakage') || lowerReason.includes('verbatim')) {
-                    bullets.push('Attempts to extract system prompts or internal configuration');
+                    bullets.push('Attempts to extract system prompts or internal instructions');
                 }
                 if (lowerAttack.includes('jailbreak') || lowerReason.includes('dan') || lowerReason.includes('unrestricted')) {
                     bullets.push('Attempts to bypass AI safety guardrails and policy constraints');
                 }
                 if (lowerAttack.includes('goal') || lowerReason.includes('hijacking') || lowerReason.includes('task deviation')) {
-                    bullets.push('Attempts to deviate or hijack the intended AI task');
+                    bullets.push("Attempts to deviate or hijack the AI's intended task");
                 }
 
-                // Fallbacks if specific keyword didn't match
                 if (bullets.length === 0) {
                     bullets.push('Contains suspicious instruction patterns');
-                    bullets.push('Could cause unintended or unsafe AI behavior');
+                    bullets.push('Could cause unintended AI behavior');
                 } else if (bullets.length < 2) {
-                    bullets.push('Could cause unintended or unsafe AI behavior');
+                    bullets.push('Could cause unintended AI behavior');
                 }
 
                 bullets.forEach(b => {
@@ -552,19 +552,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Safer Alternative Card
-        if (saferCard) {
-            saferCard.style.display = (userRec === 'BLOCK' || userRec === 'REVIEW') ? 'flex' : 'none';
+        // Safer Version Action Button
+        if (btnSafer) {
+            btnSafer.style.display = (userRec === 'BLOCK' || userRec === 'REVIEW') ? 'inline-flex' : 'none';
         }
 
-        // Scroll result card into view smoothly
-        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    // --- Block Dialog Functions (Required by test_block_dialog_ui.py) ---
+    // --- Block Dialog Functions (Preserving contract tested by test_block_dialog_ui.py) ---
     function showBlockDialog(layer1, riskLevel) {
-        const overlay = document.getElementById('blockDialogOverlay');
-        if (!overlay) return;
+        if (!blockDialogOverlay) return;
 
         const titleEl = document.getElementById('blockDialogTitle');
         if (titleEl) titleEl.textContent = 'Prompt Blocked Before Reaching the AI';
@@ -576,34 +574,188 @@ document.addEventListener('DOMContentLoaded', () => {
         if (attackEl) attackEl.textContent = layer1.attack_type || layer1.classification || 'Prompt Injection';
 
         const reasonEl = document.getElementById('blockDialogReason');
-        if (reasonEl) reasonEl.textContent = layer1.reason ? layer1.reason : 'Adversarial pattern identified before processing.';
+        if (reasonEl) reasonEl.textContent = layer1.reason || 'Adversarial pattern identified before processing.';
 
-        overlay.style.display = 'flex';
+        blockDialogOverlay.style.display = 'flex';
     }
 
     function hideBlockDialog() {
-        const overlay = document.getElementById('blockDialogOverlay');
-        if (overlay) overlay.style.display = 'none';
+        if (blockDialogOverlay) blockDialogOverlay.style.display = 'none';
     }
 
-    // Window expose for backward compatibility/testing
     window.showBlockDialog = showBlockDialog;
     window.hideBlockDialog = hideBlockDialog;
 
-    const blockDialogRetryBtn = document.getElementById('blockDialogRetryBtn');
+    // Critical Result-Persistence Requirement:
+    // Closing or clicking retry on the block dialog MUST NOT reset the analyzer or lose results!
     if (blockDialogRetryBtn) {
         blockDialogRetryBtn.addEventListener('click', () => {
             hideBlockDialog();
-            if (promptInput) {
-                promptInput.value = '';
-                promptInput.focus();
-                if (charCount) charCount.textContent = `0 / ${MAX_CHARS} characters`;
-            }
-            if (resultContainer) resultContainer.style.display = 'none';
+            // The prompt and result card remain visible for editing/review
+            if (promptInput) promptInput.focus();
+            showToast('Prompt and threat analysis preserved');
         });
     }
 
-    // --- Recent Analyses Management ---
+    if (blockDialogCloseBtn) {
+        blockDialogCloseBtn.addEventListener('click', () => {
+            hideBlockDialog();
+        });
+    }
+
+    // --- Post-Analysis User Actions ---
+    // 1. Edit Prompt: puts existing prompt back into textarea and focuses
+    if (btnEditPrompt) {
+        btnEditPrompt.addEventListener('click', () => {
+            if (promptInput) {
+                if (lastAnalyzedPrompt && !lastAnalyzedPrompt.startsWith('[Attachment:')) {
+                    promptInput.value = lastAnalyzedPrompt;
+                    promptInput.dispatchEvent(new Event('input'));
+                }
+                promptInput.focus();
+                showToast('Editing prompt');
+            }
+        });
+    }
+
+    // 2. Try Safer Version Suggestion
+    if (btnSafer) {
+        btnSafer.addEventListener('click', () => {
+            let suggested = 'Please explain how instruction isolation and prompt handling function in modern AI systems.';
+            if (lastAnalyzedPrompt) {
+                const lower = lastAnalyzedPrompt.toLowerCase();
+                if (lower.includes('ignore') || lower.includes('system prompt')) {
+                    suggested = 'Can you describe the standard architectural patterns for system instructions and how LLMs prioritize user queries?';
+                } else if (lower.includes('dan') || lower.includes('jailbreak')) {
+                    suggested = 'What are the main security considerations and safety guidelines used in AI model deployment?';
+                } else {
+                    suggested = `How would you summarize the core concept of "${lastAnalyzedPrompt.slice(0, 45)}..." in a constructive and safe manner?`;
+                }
+            }
+            if (saferPromptText) saferPromptText.textContent = suggested;
+            if (saferModal) saferModal.style.display = 'flex';
+        });
+    }
+
+    if (saferModalClose) {
+        saferModalClose.addEventListener('click', () => {
+            if (saferModal) saferModal.style.display = 'none';
+        });
+    }
+
+    if (btnCopySafer) {
+        btnCopySafer.addEventListener('click', () => {
+            if (saferPromptText && promptInput) {
+                promptInput.value = saferPromptText.textContent;
+                promptInput.dispatchEvent(new Event('input'));
+                if (saferModal) saferModal.style.display = 'none';
+                promptInput.focus();
+                showToast('Safer prompt copied to prompt box');
+            }
+        });
+    }
+
+    // 3. Analyze Another Prompt (Explicit clean reset)
+    if (btnNewAnalysis) {
+        btnNewAnalysis.addEventListener('click', () => {
+            if (promptInput) {
+                promptInput.value = '';
+                promptInput.dispatchEvent(new Event('input'));
+                promptInput.focus();
+            }
+            attachedFile = null;
+            if (fileInput) fileInput.value = '';
+            if (attachmentChipContainer) attachmentChipContainer.style.display = 'none';
+            if (resultContainer) resultContainer.style.display = 'none';
+            lastAnalysisData = null;
+            lastAnalyzedPrompt = '';
+            showToast('Started new analysis');
+        });
+    }
+
+    // 4. View Full Details Modal
+    if (btnViewDetails) {
+        btnViewDetails.addEventListener('click', () => {
+            if (lastAnalysisData) {
+                const layer1 = lastAnalysisData.layer1 || lastAnalysisData;
+                document.getElementById('modalPrompt').textContent = lastAnalyzedPrompt;
+                const modalRisk = document.getElementById('modalRiskLevel');
+                modalRisk.textContent = layer1.risk_level || 'LOW';
+                modalRisk.className = `badge-risk ${(layer1.risk_level || 'low').toLowerCase()}`;
+                document.getElementById('modalScore').textContent = `${Math.round(parseFloat(layer1.risk_score || 0))} / 100`;
+                const modalRec = document.getElementById('modalRecommendation');
+                modalRec.textContent = lastAnalysisData.final_decision === 'BLOCK' ? 'BLOCK' : (layer1.risk_level === 'MEDIUM' ? 'REVIEW' : 'ALLOW');
+                modalRec.className = `badge-rec ${modalRec.textContent.toLowerCase()}`;
+                document.getElementById('modalReason').textContent = layer1.reason || 'Standard security validation performed.';
+                
+                const authNotice = document.getElementById('modalAuthStatus');
+                if (authNotice) {
+                    authNotice.textContent = adminAuthToken ? 'Unlocked (Administrator)' : 'Standard User Session';
+                    authNotice.style.color = adminAuthToken ? 'var(--safe)' : 'var(--text-subtle)';
+                }
+
+                if (detailsModal) detailsModal.style.display = 'flex';
+            }
+        });
+    }
+
+    if (detailsModalClose) {
+        detailsModalClose.addEventListener('click', () => {
+            if (detailsModal) detailsModal.style.display = 'none';
+        });
+    }
+
+    // --- Admin Authentication Flow ---
+    if (btnAdminAuthModal) {
+        btnAdminAuthModal.addEventListener('click', () => {
+            if (authErrorMsg) authErrorMsg.style.display = 'none';
+            if (authModal) authModal.style.display = 'flex';
+            if (authUsername) authUsername.focus();
+        });
+    }
+
+    if (authModalClose) authModalClose.addEventListener('click', () => { if (authModal) authModal.style.display = 'none'; });
+    if (authCancelBtn) authCancelBtn.addEventListener('click', () => { if (authModal) authModal.style.display = 'none'; });
+
+    if (authForm) {
+        authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = authUsername.value.trim();
+            const password = authPassword.value.trim();
+
+            if (!username || !password) return;
+
+            try {
+                // Authenticate with existing backend authentication endpoint
+                const res = await fetch('/api/reauth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    adminAuthToken = btoa(username + ':' + password);
+                    if (authModal) authModal.style.display = 'none';
+                    authPassword.value = '';
+                    showToast('Authorized: Admin security telemetry unlocked');
+                    loadHistory(); // Reload history with full incidents
+                } else {
+                    if (authErrorMsg) {
+                        authErrorMsg.textContent = data.error || 'Authentication failed: Invalid credentials provided.';
+                        authErrorMsg.style.display = 'block';
+                    }
+                }
+            } catch (err) {
+                if (authErrorMsg) {
+                    authErrorMsg.textContent = 'Authentication service temporarily unavailable.';
+                    authErrorMsg.style.display = 'block';
+                }
+            }
+        });
+    }
+
+    // --- Recent & History Analyses ---
     function recordRecentAnalysis(data, promptText) {
         const layer1 = data.layer1 || data;
         const riskLevel = layer1.risk_level || 'LOW';
@@ -623,348 +775,175 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         sessionAnalyses.unshift(item);
-        if (sessionAnalyses.length > 20) sessionAnalyses.pop();
+        if (sessionAnalyses.length > 25) sessionAnalyses.pop();
 
         try {
             localStorage.setItem('prompt_security_analyses', JSON.stringify(sessionAnalyses));
         } catch (e) {}
 
-        renderRecentAnalysesList();
+        if (window.location.hash === '#history') {
+            loadHistory();
+        }
     }
-
-    function renderRecentAnalysesList() {
-        const container = document.getElementById('recentList');
-        if (!container) return;
-
-        const list = sessionAnalyses.length > 0 ? sessionAnalyses.slice(0, 4) : DEFAULT_HISTORY.slice(0, 4);
-        container.innerHTML = '';
-
-        list.forEach(item => {
-            const row = document.createElement('div');
-            row.className = 'recent-item';
-            
-            const badgeClass = item.riskLevel.toLowerCase();
-
-            row.innerHTML = `
-                <div class="recent-item-left">
-                    <div class="recent-item-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                            <polyline points="14 2 14 8 20 8"></polyline>
-                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                        </svg>
-                    </div>
-                    <div class="recent-text-wrap">
-                        <span class="recent-prompt-preview" title="${escapeHtml(item.prompt)}">${escapeHtml(item.prompt)}</span>
-                        <span class="recent-timestamp">${item.time}</span>
-                    </div>
-                </div>
-                <div class="recent-item-right">
-                    <span class="badge-risk ${badgeClass}">${item.riskLevel}</span>
-                    <span class="recent-score">${item.score}</span>
-                </div>
-            `;
-
-            row.addEventListener('click', () => {
-                openAnalysisModal(item);
-            });
-
-            container.appendChild(row);
-        });
-    }
-
-    renderRecentAnalysesList();
-
-    // Link "View All" in Recent Analyses Card
-    const linkViewAll = document.getElementById('linkViewAll');
-    if (linkViewAll) {
-        linkViewAll.addEventListener('click', (e) => {
-            e.preventDefault();
-            window.location.hash = '#history';
-        });
-    }
-
-    // --- History Page Logic ---
-    const historyTbody = document.getElementById('historyTbody');
-    const historySearch = document.getElementById('historySearch');
-    const filterRisk = document.getElementById('filterRisk');
-    const filterDate = document.getElementById('filterDate');
 
     async function loadHistory() {
-        if (!historyTbody) return;
+        const container = document.getElementById('historyListContainer');
+        if (!container) return;
 
-        historyTbody.innerHTML = `
-            <tr>
-                <td colspan="5">
-                    <div class="state-box" style="margin: 2rem auto; max-width: 320px;">
-                        <div class="spinner-ring"></div>
-                        <span class="state-desc">Loading analysis history...</span>
-                    </div>
-                </td>
-            </tr>`;
+        container.innerHTML = `
+            <div class="state-box" style="margin: 2rem auto; max-width: 320px;">
+                <div class="spinner-ring"></div>
+                <p style="font-size: 0.88rem; color: var(--text-muted);">Loading analysis history...</p>
+            </div>`;
 
-        let loadedItems = [];
+        let items = [];
 
         try {
-            // Attempt to load from real backend logging endpoint
-            const res = await fetch('/api/incidents');
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data) && data.length > 0) {
-                    loadedItems = data.map(inc => {
-                        const scoreVal = inc.risk_score !== undefined ? parseFloat(inc.risk_score) : 0;
-                        const level = inc.risk_level || 'LOW';
-                        let rec = 'ALLOW';
-                        if (level === 'CRITICAL' || level === 'HIGH' || inc.final_decision === 'BLOCK') rec = 'BLOCK';
-                        else if (level === 'WARNING' || level === 'MEDIUM') rec = 'REVIEW';
+            // If admin authenticated, fetch real database incidents from /api/incidents
+            if (adminAuthToken) {
+                const res = await fetch('/api/incidents', {
+                    headers: { 'Authorization': 'Basic ' + adminAuthToken }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data) && data.length > 0) {
+                        items = data.map(inc => {
+                            const scoreVal = inc.risk_score !== undefined ? parseFloat(inc.risk_score) : 0;
+                            const level = inc.risk_level || 'LOW';
+                            let rec = 'ALLOW';
+                            if (level === 'CRITICAL' || level === 'HIGH' || inc.final_decision === 'BLOCK') rec = 'BLOCK';
+                            else if (level === 'WARNING' || level === 'MEDIUM') rec = 'REVIEW';
 
-                        return {
-                            id: inc.request_id || 'INC-' + Math.random().toString(36).substr(2, 6),
-                            prompt: inc.prompt || inc.attack_type || 'Analyzed Prompt',
-                            time: inc.timestamp ? new Date(inc.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Recent',
-                            timestamp: inc.timestamp || new Date().toISOString(),
-                            riskLevel: level,
-                            score: Math.round(scoreVal),
-                            recommendation: rec,
-                            decision: inc.final_decision || rec,
-                            reason: inc.reason || ''
-                        };
-                    });
+                            return {
+                                id: inc.request_id || 'INC-' + Math.random().toString(36).substr(2, 6),
+                                prompt: inc.prompt || inc.attack_type || 'Analyzed Prompt',
+                                time: inc.timestamp ? new Date(inc.timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Recent',
+                                timestamp: inc.timestamp || new Date().toISOString(),
+                                riskLevel: level,
+                                score: Math.round(scoreVal),
+                                recommendation: rec,
+                                decision: inc.final_decision || rec,
+                                reason: inc.reason || ''
+                            };
+                        });
+                    }
                 }
-            } else if (res.status === 401 || res.status === 403) {
-                // Admin endpoint requires Basic Auth; use user's session history or friendly unavailable state
-                if (sessionAnalyses.length > 0) {
-                    loadedItems = [...sessionAnalyses];
-                } else {
-                    renderHistoryUnavailable();
-                    return;
-                }
-            } else {
-                throw new Error('Service unavailable');
             }
         } catch (e) {
-            if (sessionAnalyses.length > 0) {
-                loadedItems = [...sessionAnalyses];
-            } else {
-                renderHistoryUnavailable();
-                return;
-            }
+            // Graceful fallback to session data
         }
 
-        // Merge session analyses if any exist
-        if (sessionAnalyses.length > 0 && loadedItems.length > 0) {
-            const ids = new Set(loadedItems.map(i => i.id));
+        // Combine session analyses with database incidents
+        if (sessionAnalyses.length > 0) {
+            const existingIds = new Set(items.map(i => i.id));
             sessionAnalyses.forEach(s => {
-                if (!ids.has(s.id)) loadedItems.unshift(s);
+                if (!existingIds.has(s.id)) items.unshift(s);
             });
-        } else if (loadedItems.length === 0) {
-            loadedItems = [...DEFAULT_HISTORY];
         }
 
-        allHistoryItems = loadedItems;
-        applyHistoryFilters();
+        if (items.length === 0) {
+            items = [...DEFAULT_HISTORY];
+        }
+
+        allHistoryItems = items;
+        renderHistoryList(items);
     }
 
     let allHistoryItems = [];
 
-    function applyHistoryFilters() {
-        if (!historyTbody) return;
+    function renderHistoryList(items) {
+        const container = document.getElementById('historyListContainer');
+        if (!container) return;
 
-        const query = historySearch ? historySearch.value.trim().toLowerCase() : '';
-        const riskVal = filterRisk ? filterRisk.value : 'ALL';
-        const dateVal = filterDate ? filterDate.value : 'ALL';
-
-        let filtered = allHistoryItems.filter(item => {
-            // Search query
-            if (query && !item.prompt.toLowerCase().includes(query) && !item.riskLevel.toLowerCase().includes(query)) {
-                return false;
-            }
-            // Risk Level
-            if (riskVal !== 'ALL' && item.riskLevel.toUpperCase() !== riskVal.toUpperCase()) {
-                return false;
-            }
-            // Date Filter
-            if (dateVal === 'TODAY') {
-                const itemDate = new Date(item.timestamp).toDateString();
-                const today = new Date().toDateString();
-                if (itemDate !== today) return false;
-            } else if (dateVal === '7DAYS') {
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                if (new Date(item.timestamp) < sevenDaysAgo) return false;
-            }
-            return true;
-        });
-
-        if (filtered.length === 0) {
-            historyTbody.innerHTML = `
-                <tr>
-                    <td colspan="5">
-                        <div class="empty-table-state">
-                            <div class="empty-state-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                            </div>
-                            <h4 class="empty-state-title">No matching analyses</h4>
-                            <p class="empty-state-desc">Try adjusting your search terms or filter settings.</p>
-                        </div>
-                    </td>
-                </tr>`;
+        if (items.length === 0) {
+            container.innerHTML = `
+                <div class="state-box">
+                    <p style="font-weight: 600; color: var(--text-main);">No matching analyses found</p>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">Try a different search query or analyze a prompt.</p>
+                </div>`;
             return;
         }
 
-        historyTbody.innerHTML = '';
-        filtered.forEach(item => {
-            const tr = document.createElement('tr');
-            const badgeClass = item.riskLevel.toLowerCase();
-            const recClass = item.recommendation === 'BLOCK' ? 'block' : (item.recommendation === 'REVIEW' ? 'review' : 'allow');
+        container.innerHTML = '';
+        items.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'history-item-card';
 
-            tr.innerHTML = `
-                <td class="cell-time">${item.time}</td>
-                <td class="cell-prompt" title="${escapeHtml(item.prompt)}">${escapeHtml(item.prompt)}</td>
-                <td><span class="badge-risk ${badgeClass}">${item.riskLevel}</span></td>
-                <td style="font-weight: 700;">${item.score} / 100</td>
-                <td><span class="badge-rec ${recClass}">${item.recommendation}</span></td>
+            const badgeClass = item.riskLevel.toLowerCase();
+
+            card.innerHTML = `
+                <div class="history-item-left">
+                    <div class="history-icon-circle">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </div>
+                    <div style="min-width: 0;">
+                        <div class="history-prompt-text" title="${escapeHtml(item.prompt)}">${escapeHtml(item.prompt)}</div>
+                        <div class="history-meta-sub">${item.time}</div>
+                    </div>
+                </div>
+                <div class="history-item-right">
+                    <span class="badge-risk ${badgeClass}">${item.riskLevel}</span>
+                    <span style="font-weight: 700; font-size: 0.88rem; color: var(--text-main);">${item.score} / 100</span>
+                </div>
             `;
 
-            tr.addEventListener('click', () => {
-                openAnalysisModal(item);
+            // Clicking any entry re-opens the analysis in the analyzer
+            card.addEventListener('click', () => {
+                if (promptInput) {
+                    promptInput.value = item.prompt;
+                    promptInput.dispatchEvent(new Event('input'));
+                }
+                lastAnalyzedPrompt = item.prompt;
+                window.location.hash = '#analyzer';
+                renderResult({
+                    final_decision: item.recommendation,
+                    layer1: {
+                        decision: item.recommendation,
+                        risk_level: item.riskLevel,
+                        risk_score: item.score,
+                        attack_type: item.riskLevel === 'LOW' ? 'Benign' : 'Adversarial Prompt',
+                        reason: item.reason || ''
+                    },
+                    llm_called: item.recommendation === 'ALLOW'
+                }, item.prompt);
+                showToast('Loaded analysis from history');
             });
 
-            historyTbody.appendChild(tr);
+            container.appendChild(card);
         });
     }
 
-    function renderHistoryUnavailable() {
-        if (!historyTbody) return;
-        historyTbody.innerHTML = `
-            <tr>
-                <td colspan="5">
-                    <div class="empty-table-state">
-                        <div class="empty-state-icon" style="color: var(--warning);">
-                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                                <line x1="12" y1="8" x2="12" y2="12"></line>
-                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                            </svg>
-                        </div>
-                        <h4 class="empty-state-title">History temporarily unavailable</h4>
-                        <p class="empty-state-desc">Please try again in a moment.</p>
-                        <button type="button" id="historyRetryBtn" class="btn-outline" style="margin-top: 0.5rem;">Retry</button>
-                    </div>
-                </td>
-            </tr>`;
-
-        const retry = document.getElementById('historyRetryBtn');
-        if (retry) retry.addEventListener('click', loadHistory);
-    }
-
-    if (historySearch) historySearch.addEventListener('input', applyHistoryFilters);
-    if (filterRisk) filterRisk.addEventListener('change', applyHistoryFilters);
-    if (filterDate) filterDate.addEventListener('change', applyHistoryFilters);
-
-    // --- Details Modal Management ---
-    function openAnalysisModal(item) {
-        if (!detailsModal) return;
-
-        document.getElementById('modalPrompt').textContent = item.prompt;
-        document.getElementById('modalRiskLevel').textContent = item.riskLevel;
-        document.getElementById('modalRiskLevel').className = `badge-risk ${item.riskLevel.toLowerCase()}`;
-        document.getElementById('modalScore').textContent = `${item.score} / 100`;
-        document.getElementById('modalRecommendation').textContent = item.recommendation;
-        document.getElementById('modalRecommendation').className = `badge-rec ${item.recommendation.toLowerCase()}`;
-        document.getElementById('modalReason').textContent = item.reason || 'Standard security validation performed.';
-
-        detailsModal.style.display = 'flex';
-    }
-
-    if (btnViewDetails) {
-        btnViewDetails.addEventListener('click', () => {
-            if (lastAnalysisData) {
-                const layer1 = lastAnalysisData.layer1 || lastAnalysisData;
-                openAnalysisModal({
-                    prompt: lastAnalyzedPrompt,
-                    riskLevel: layer1.risk_level || 'LOW',
-                    score: Math.round(parseFloat(layer1.risk_score || 0)),
-                    recommendation: lastAnalysisData.final_decision === 'BLOCK' ? 'BLOCK' : (layer1.risk_level === 'MEDIUM' ? 'REVIEW' : 'ALLOW'),
-                    reason: layer1.reason || ''
-                });
-            }
+    const historySearch = document.getElementById('historySearch');
+    if (historySearch) {
+        historySearch.addEventListener('input', () => {
+            const q = historySearch.value.trim().toLowerCase();
+            const filtered = allHistoryItems.filter(i => 
+                i.prompt.toLowerCase().includes(q) || 
+                i.riskLevel.toLowerCase().includes(q) ||
+                i.recommendation.toLowerCase().includes(q)
+            );
+            renderHistoryList(filtered);
         });
     }
 
-    if (detailsModalClose) {
-        detailsModalClose.addEventListener('click', () => {
-            detailsModal.style.display = 'none';
-        });
-    }
-
-    // --- "Get Safer Version" Demo Rephrasing Feature ---
-    if (btnSafer) {
-        btnSafer.addEventListener('click', () => {
-            if (!saferModal) return;
-            
-            // Client-side demonstration rephrasing: strip adversarial directives, highlight legitimate intent
-            let suggested = 'Please explain how secure prompt handling and instruction isolation function in modern AI systems.';
-            if (lastAnalyzedPrompt) {
-                if (lastAnalyzedPrompt.toLowerCase().includes('ignore') || lastAnalyzedPrompt.toLowerCase().includes('system prompt')) {
-                    suggested = 'Can you describe the standard architectural patterns for system instructions and how LLMs prioritize user queries?';
-                } else if (lastAnalyzedPrompt.toLowerCase().includes('dan') || lastAnalyzedPrompt.toLowerCase().includes('jailbreak')) {
-                    suggested = 'What are the main security considerations and safety guidelines used in AI model deployment?';
-                } else {
-                    suggested = `How would you summarize the core concept of: "${lastAnalyzedPrompt.slice(0, 50)}..." in a constructive and safe manner?`;
-                }
-            }
-
-            if (saferPromptText) saferPromptText.textContent = suggested;
-            saferModal.style.display = 'flex';
-        });
-    }
-
-    if (saferModalClose) {
-        saferModalClose.addEventListener('click', () => {
-            saferModal.style.display = 'none';
-        });
-    }
-
-    if (btnCopySafer) {
-        btnCopySafer.addEventListener('click', () => {
-            if (saferPromptText && promptInput) {
-                promptInput.value = saferPromptText.textContent;
-                promptInput.dispatchEvent(new Event('input'));
-                if (saferModal) saferModal.style.display = 'none';
-                promptInput.focus();
-                showToast('Safer prompt copied to analyzer input');
-                window.location.hash = '#analyzer';
-            }
-        });
-    }
-
-    // Close modals on backdrop click or Escape key
+    // Modal Close handlers
     window.addEventListener('click', (e) => {
         if (e.target === detailsModal) detailsModal.style.display = 'none';
         if (e.target === saferModal) saferModal.style.display = 'none';
+        if (e.target === authModal) authModal.style.display = 'none';
     });
 
     window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             if (detailsModal) detailsModal.style.display = 'none';
             if (saferModal) saferModal.style.display = 'none';
+            if (authModal) authModal.style.display = 'none';
             hideBlockDialog();
         }
     });
 
-    // --- How It Works Accordion ---
-    if (techAccordion) {
-        const accHeader = techAccordion.querySelector('.accordion-header');
-        if (accHeader) {
-            accHeader.addEventListener('click', () => {
-                techAccordion.classList.toggle('open');
-            });
-        }
-    }
-
-    // --- Utility: Escape HTML ---
     function escapeHtml(str) {
         if (!str) return '';
         return String(str)
