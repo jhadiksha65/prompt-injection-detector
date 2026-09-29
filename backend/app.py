@@ -219,10 +219,12 @@ def secure_prompt():
 
     is_multipart_request = bool(request.content_type) and request.content_type.startswith("multipart/form-data")
 
+    attachment_metadata = None
     if is_multipart_request:
         # Attachment-capable path: prompt (optional) + at most one attachment
         # field. Existing JSON-only behavior (below) is untouched.
         prompt_text = str(request.form.get("prompt", "")).strip()
+        raw_prompt_text = prompt_text
         demo_layer2_leak_requested = str(request.form.get("demo_layer2_leak", "")).strip().lower() == "true"
 
         uploaded_file = request.files.get("attachment")
@@ -231,6 +233,16 @@ def secure_prompt():
             try:
                 attachment_bytes = uploaded_file.read()
                 attachment_text = extract_attachment_text(uploaded_file.filename, attachment_bytes)
+                ext = os.path.splitext(uploaded_file.filename)[1].lower().lstrip(".")
+                is_image = ext in ("png", "jpg", "jpeg")
+                attachment_metadata = {
+                    "filename": uploaded_file.filename,
+                    "file_type": ext.upper(),
+                    "is_image": is_image,
+                    "extracted_chars": len(attachment_text),
+                    "extraction_status": "Success",
+                    "analyzed": True
+                }
             except AttachmentError as exc:
                 return jsonify({"error": str(exc)}), 400
 
@@ -239,6 +251,15 @@ def secure_prompt():
 
         if attachment_text:
             prompt_text = f"{prompt_text}\n\n{attachment_text}".strip() if prompt_text else attachment_text
+
+        analysis_scope = {
+            "prompt_analyzed": bool(raw_prompt_text),
+            "attachment_analyzed": bool(attachment_text),
+            "filename": uploaded_file.filename if uploaded_file else None,
+            "file_type": os.path.splitext(uploaded_file.filename)[1].lower().lstrip(".").upper() if (uploaded_file and uploaded_file.filename) else None,
+            "extraction_status": "Success" if attachment_text else "None",
+            "extracted_chars": len(attachment_text) if attachment_text else 0
+        }
     else:
         data = request.get_json(silent=True)
         if not data or "prompt" not in data:
@@ -246,6 +267,14 @@ def secure_prompt():
 
         prompt_text = str(data.get("prompt", "")).strip()
         demo_layer2_leak_requested = bool(data.get("demo_layer2_leak") is True)
+        analysis_scope = {
+            "prompt_analyzed": True,
+            "attachment_analyzed": False,
+            "filename": None,
+            "file_type": None,
+            "extraction_status": "None",
+            "extracted_chars": 0
+        }
 
     client_ip = request.remote_addr or "127.0.0.1"
 
@@ -346,7 +375,9 @@ def secure_prompt():
                 "reason": l1_reason,
                 "alert_dispatched": email_status == "SENT",
                 "lock_status": "LOCKED" if is_critical else "ACTIVE"
-            }
+            },
+            "attachment_metadata": attachment_metadata,
+            "analysis_scope": analysis_scope
         }), 200
 
     # =========================================================
@@ -456,7 +487,9 @@ def secure_prompt():
         "alert_status": email_status,
         "email_status": email_status,
         "sms_status": sms_status,
-        "sensitive_resource_locked": False
+        "sensitive_resource_locked": False,
+        "attachment_metadata": attachment_metadata,
+        "analysis_scope": analysis_scope
     }), 200
 
 

@@ -137,8 +137,8 @@
                 <!-- Error State -->
                 <div id="errorState" class="state-box" style="display: none;">
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                    <p style="font-weight: 600; color: var(--text-main);">Unable to analyze this prompt right now.</p>
-                    <p style="font-size: 0.85rem; color: var(--text-muted);">Please try again in a moment.</p>
+                    <p style="font-weight: 600; color: var(--text-main);" id="errorStateTitle">Unable to analyze this prompt right now.</p>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);" id="errorStateDesc">Please try again in a moment.</p>
                     <button type="button" id="retryBtn" class="btn-action">Retry</button>
                 </div>
 
@@ -160,6 +160,21 @@
                                 </div>
                             </div>
                             <span class="result-timestamp" id="resultTime">Analyzed just now</span>
+                        </div>
+
+                        <!-- Expandable Analysis Scope / Scanned Input Box -->
+                        <div class="analysis-scope-box" id="analysisScopeBox">
+                            <button type="button" class="analysis-scope-toggle" id="analysisScopeToggle" aria-expanded="false">
+                                <div class="scope-toggle-left">
+                                    <span class="scope-toggle-icon" aria-hidden="true">📋</span>
+                                    <span class="scope-toggle-label">Analysis Scope &amp; Scanned Input</span>
+                                </div>
+                                <svg class="scope-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            </button>
+                            <div class="analysis-scope-body" id="analysisScopeBody" style="display: none;">
+                                <ul class="scope-checklist" id="scopeChecklist"></ul>
+                                <div class="scope-metadata-details" id="scopeMetadataDetails"></div>
+                            </div>
                         </div>
 
                         <!-- 3 Metric Cards -->
@@ -247,13 +262,40 @@
                         <div style="font-size: 2.2rem; text-align: center;" aria-hidden="true">⛔</div>
                         <h3 class="modal-title" id="blockDialogTitle" style="text-align: center;">Prompt Blocked Before Reaching the AI</h3>
                         <p class="modal-body" id="blockDialogMessage" style="text-align: center; color: var(--text-muted);">
-                            This prompt was not sent to the AI model. Our security layer identified it as a
-                            <strong id="blockDialogRiskLevel">HIGH</strong> risk
-                            (<span id="blockDialogAttackType">Prompt Injection</span>) before generation began.
+                            This prompt was not sent to the AI model. Our security layer identified it before generation began.
                         </p>
-                        <p id="blockDialogReason" style="font-size: 0.85rem; color: var(--threat); text-align: center; background: var(--threat-bg); padding: 0.75rem; border-radius: 8px; border: 1px solid var(--threat-border);"></p>
-                        <div style="display: flex; justify-content: center; gap: 0.75rem; margin-top: 0.5rem;">
+
+                        <!-- Scanned Input Section -->
+                        <div class="block-dialog-section">
+                            <span class="block-dialog-label">Scanned Input</span>
+                            <div class="block-dialog-scanned-box" id="blockDialogScannedBox">
+                                <div id="blockDialogScannedPrompt" class="scanned-prompt-quote"></div>
+                                <div id="blockDialogScannedMeta" class="scanned-prompt-meta" style="display: none;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Threat & Risk Breakdown Grid -->
+                        <div class="block-dialog-grid">
+                            <div class="block-grid-cell">
+                                <span class="block-cell-label">Risk</span>
+                                <div class="block-cell-val" id="blockDialogRiskScoreDisplay">100 / 100</div>
+                                <span class="badge-risk critical" id="blockDialogRiskLevel">CRITICAL</span>
+                            </div>
+                            <div class="block-grid-cell">
+                                <span class="block-cell-label">Detection</span>
+                                <div class="block-cell-val" id="blockDialogAttackType">Direct Prompt Injection</div>
+                            </div>
+                        </div>
+
+                        <!-- Why it was blocked -->
+                        <div class="block-dialog-section">
+                            <span class="block-dialog-label">Why it was blocked</span>
+                            <p id="blockDialogReason" class="block-reason-box"></p>
+                        </div>
+
+                        <div class="block-dialog-actions" style="display: flex; justify-content: center; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap;">
                             <button type="button" id="blockDialogRetryBtn" class="btn-action btn-action-primary">Try a Safer Prompt</button>
+                            <button type="button" id="blockDialogProtectedBtn" class="btn-action">View Protected Details</button>
                             <button type="button" id="blockDialogCloseBtn" class="btn-action">Close</button>
                         </div>
                     </div>

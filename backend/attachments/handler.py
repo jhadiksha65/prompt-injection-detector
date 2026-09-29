@@ -300,6 +300,15 @@ def extract_attachment_text(filename: str, data: bytes) -> str:
         text = _extract_txt_text(data)
 
     if not text:
-        raise AttachmentError("No extractable text was found in the attachment.")
+        if ext in (".png", ".jpg", ".jpeg"):
+            raise AttachmentError(
+                "Could not identify readable text in this image. "
+                "No content-level security analysis was performed on the image."
+            )
+        else:
+            raise AttachmentError(
+                "Could not extract readable text from this document. "
+                "The document content could not be analyzed for prompt injection."
+            )
 
     return text[:MAX_EXTRACTED_TEXT_CHARS]

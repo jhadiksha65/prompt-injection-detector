@@ -117,6 +117,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const flaggedSection = document.getElementById('flaggedSection');
     const flaggedList = document.getElementById('flaggedList');
 
+    // Analysis Scope Elements
+    const analysisScopeBox = document.getElementById('analysisScopeBox');
+    const analysisScopeToggle = document.getElementById('analysisScopeToggle');
+    const analysisScopeBody = document.getElementById('analysisScopeBody');
+    const scopeChecklist = document.getElementById('scopeChecklist');
+    const scopeMetadataDetails = document.getElementById('scopeMetadataDetails');
+
     // Result Actions
     const btnEditPrompt = document.getElementById('btnEditPrompt');
     const btnSafer = document.getElementById('btnSafer');
@@ -146,6 +153,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const blockDialogOverlay = document.getElementById('blockDialogOverlay');
     const blockDialogRetryBtn = document.getElementById('blockDialogRetryBtn');
     const blockDialogCloseBtn = document.getElementById('blockDialogCloseBtn');
+    const blockDialogProtectedBtn = document.getElementById('blockDialogProtectedBtn');
+    const blockDialogScannedPrompt = document.getElementById('blockDialogScannedPrompt');
+    const blockDialogScannedMeta = document.getElementById('blockDialogScannedMeta');
+    const blockDialogRiskScoreDisplay = document.getElementById('blockDialogRiskScoreDisplay');
+
+    // Error State Elements
+    const errorStateTitle = document.getElementById('errorStateTitle');
+    const errorStateDesc = document.getElementById('errorStateDesc');
 
     // Theme Toggle
     const themeToggleBtn = document.getElementById('themeToggleBtn');
@@ -347,6 +362,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Toggle Expandable Analysis Scope Details
+    if (analysisScopeToggle && analysisScopeBody) {
+        analysisScopeToggle.addEventListener('click', () => {
+            const isExpanded = analysisScopeToggle.getAttribute('aria-expanded') === 'true';
+            analysisScopeToggle.setAttribute('aria-expanded', String(!isExpanded));
+            analysisScopeBody.style.display = isExpanded ? 'none' : 'block';
+        });
+    }
+
     // --- Form Submission & Real Backend Analysis ---
     if (analyzeForm) {
         analyzeForm.addEventListener('submit', (e) => {
@@ -444,8 +468,18 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('Analysis error:', err);
             if (loadingState) loadingState.style.display = 'none';
-            if (errorState) errorState.style.display = 'flex';
-            showToast('Unable to analyze this prompt right now.');
+            if (errorState) {
+                const errMsg = err.message || '';
+                if (errMsg.includes('readable text') || errMsg.includes('Could not extract') || errMsg.includes('Attachment') || errMsg.includes('No content-level')) {
+                    if (errorStateTitle) errorStateTitle.textContent = 'Attachment Text Extraction Failed';
+                    if (errorStateDesc) errorStateDesc.textContent = errMsg + ' Please upload a file with readable text or paste the text directly.';
+                } else {
+                    if (errorStateTitle) errorStateTitle.textContent = 'Unable to analyze this prompt right now.';
+                    if (errorStateDesc) errorStateDesc.textContent = 'Please try again in a moment.';
+                }
+                errorState.style.display = 'flex';
+            }
+            showToast(err.message || 'Unable to analyze this prompt right now.');
         } finally {
             if (analyzeBtn) {
                 analyzeBtn.disabled = false;
@@ -544,7 +578,56 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resultTime) resultTime.textContent = 'Analyzed just now';
         if (resultIcon) resultIcon.innerHTML = iconSvg;
 
-        if (resultScopeBadge) {
+        // Update Expandable Analysis Scope / Scanned Input Box
+        if (analysisScopeBox && scopeChecklist && scopeMetadataDetails) {
+            const scope = data.analysis_scope || {};
+            const attMeta = data.attachment_metadata || {};
+            const hasPrompt = scope.prompt_analyzed !== undefined ? !!scope.prompt_analyzed : Boolean(promptText && !promptText.startsWith('[Attachment:'));
+            const hasAtt = scope.attachment_analyzed !== undefined ? !!scope.attachment_analyzed : Boolean(attachedFile || attMeta.filename);
+            const fn = scope.filename || attMeta.filename || (attachedFile ? attachedFile.name : '');
+            const ftype = (scope.file_type || attMeta.file_type || (fn ? fn.split('.').pop() : '')).toUpperCase();
+            const chars = scope.extracted_chars !== undefined ? scope.extracted_chars : (attMeta.extracted_chars || 0);
+
+            scopeChecklist.innerHTML = '';
+
+            // Scope Item 1: Prompt
+            const liPrompt = document.createElement('li');
+            if (hasPrompt) {
+                liPrompt.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>User prompt:</strong> Scanned for direct manipulation and instruction overrides</span>`;
+            } else {
+                liPrompt.innerHTML = `<span class="scope-icon off">—</span> <span><strong>User prompt:</strong> Not provided (attachment-only analysis)</span>`;
+            }
+            scopeChecklist.appendChild(liPrompt);
+
+            // Scope Item 2: Attachment
+            const liAtt = document.createElement('li');
+            if (hasAtt) {
+                liAtt.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>Attachment content:</strong> Extracted &amp; scanned for indirect prompt injection</span>`;
+            } else {
+                liAtt.innerHTML = `<span class="scope-icon off">—</span> <span><strong>Attachment:</strong> None attached</span>`;
+            }
+            scopeChecklist.appendChild(liAtt);
+
+            // Scope Metadata
+            if (hasAtt) {
+                scopeMetadataDetails.innerHTML = `Attachment: <strong>${escapeHtml(fn)}</strong> (${escapeHtml(ftype)}) &bull; Status: <span style="color:var(--safe); font-weight:600;">Extracted</span> &bull; <strong>${chars.toLocaleString()}</strong> characters analyzed`;
+            } else {
+                scopeMetadataDetails.innerHTML = `Input scope: <strong>User prompt only</strong> &bull; Total length: <strong>${(promptText || '').length.toLocaleString()}</strong> characters analyzed`;
+            }
+
+            analysisScopeBox.style.display = 'block';
+
+            if (resultScopeBadge) {
+                if (hasPrompt && hasAtt) {
+                    resultScopeBadge.textContent = `Security result: Based on prompt + document content ("${fn}")`;
+                } else if (hasAtt) {
+                    resultScopeBadge.textContent = `Security result: Based on document content ("${fn}")`;
+                } else {
+                    resultScopeBadge.textContent = 'Security result: Based on prompt';
+                }
+                resultScopeBadge.style.display = 'inline-block';
+            }
+        } else if (resultScopeBadge) {
             resultScopeBadge.textContent = lastScopeText || 'Security result: Based on prompt';
             resultScopeBadge.style.display = 'inline-block';
         }
@@ -570,22 +653,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 const bullets = [];
                 const lowerReason = reason.toLowerCase();
                 const lowerAttack = attackType.toLowerCase();
+                const attMeta = data.attachment_metadata || data.analysis_scope || {};
+                const attachedName = attMeta.filename || (attachedFile ? attachedFile.name : '');
+                const isFromAttachment = Boolean(attachedName && (data.analysis_scope?.attachment_analyzed || (lastAnalyzedPrompt && lastAnalyzedPrompt.startsWith('[Attachment:'))));
 
                 if (lowerReason.includes('override') || lowerAttack.includes('direct') || lowerReason.includes('directive') || lowerReason.includes('ignore')) {
-                    bullets.push('Instruction Override: Attempts to override instructions or system behavior');
+                    if (isFromAttachment) {
+                        bullets.push(`Instruction Override: Detected instruction override inside uploaded document: ${attachedName}`);
+                    } else {
+                        bullets.push('Instruction Override: Attempts to override instructions or system behavior');
+                    }
                 }
                 if (lowerReason.includes('system prompt') || lowerAttack.includes('leak') || lowerReason.includes('reveal') || lowerReason.includes('extract') || lowerReason.includes('verbatim')) {
-                    bullets.push('Prompt Extraction: Attempts to access or reveal internal system instructions');
+                    if (isFromAttachment) {
+                        bullets.push(`Prompt Extraction: Detected prompt extraction attempt inside uploaded document: ${attachedName}`);
+                    } else {
+                        bullets.push('Prompt Extraction: Attempts to access or reveal internal system instructions');
+                    }
                 }
                 if (lowerAttack.includes('jailbreak') || lowerReason.includes('dan') || lowerReason.includes('unrestricted') || lowerAttack.includes('role') || lowerReason.includes('persona')) {
-                    bullets.push('Unauthorized Role-Playing: Attempts to bypass boundaries via simulated persona');
+                    if (isFromAttachment) {
+                        bullets.push(`Unauthorized Role-Playing: Attempts to bypass boundaries inside uploaded document: ${attachedName}`);
+                    } else {
+                        bullets.push('Unauthorized Role-Playing: Attempts to bypass boundaries via simulated persona');
+                    }
                 }
                 if (lowerAttack.includes('goal') || lowerReason.includes('hijack') || lowerReason.includes('deviation') || lowerReason.includes('task')) {
-                    bullets.push("Goal Manipulation: Attempts to steer the AI away from its intended task");
+                    if (isFromAttachment) {
+                        bullets.push(`Goal Manipulation: Attempts to redirect model behavior inside uploaded document: ${attachedName}`);
+                    } else {
+                        bullets.push("Goal Manipulation: Attempts to steer the AI away from its intended task");
+                    }
                 }
 
                 if (bullets.length === 0) {
-                    bullets.push('Suspicious Pattern: Contains adversarial phrasing or injection markers');
+                    if (isFromAttachment) {
+                        bullets.push(`Suspicious Pattern: Adversarial patterns detected inside uploaded document: ${attachedName}`);
+                    } else {
+                        bullets.push('Suspicious Pattern: Contains adversarial phrasing or injection markers');
+                    }
                     bullets.push('Could cause unintended AI behavior');
                 } else if (bullets.length < 2) {
                     bullets.push('Suspicious Pattern: Contains adversarial phrasing or injection markers');
@@ -626,13 +732,43 @@ document.addEventListener('DOMContentLoaded', () => {
         if (titleEl) titleEl.textContent = 'Prompt Blocked Before Reaching the AI';
 
         const riskEl = document.getElementById('blockDialogRiskLevel');
-        if (riskEl) riskEl.textContent = riskLevel || 'HIGH';
+        if (riskEl) {
+            riskEl.textContent = riskLevel || 'CRITICAL';
+            riskEl.className = `badge-risk ${(riskLevel || 'critical').toLowerCase()}`;
+        }
+
+        if (blockDialogRiskScoreDisplay) {
+            const scoreVal = Math.round(parseFloat(layer1.risk_score !== undefined ? layer1.risk_score : 100));
+            blockDialogRiskScoreDisplay.textContent = `${scoreVal} / 100`;
+        }
 
         const attackEl = document.getElementById('blockDialogAttackType');
-        if (attackEl) attackEl.textContent = layer1.attack_type || layer1.classification || 'Prompt Injection';
+        if (attackEl) attackEl.textContent = layer1.attack_type || layer1.classification || 'Direct Prompt Injection';
 
         const reasonEl = document.getElementById('blockDialogReason');
-        if (reasonEl) reasonEl.textContent = layer1.reason || 'Adversarial pattern identified before processing.';
+        if (reasonEl) reasonEl.textContent = layer1.reason || 'Attempt to override system instructions and redirect model behavior.';
+
+        // Scanned Input in Block Dialog
+        if (blockDialogScannedPrompt) {
+            const hasRawPrompt = lastAnalyzedPrompt && !lastAnalyzedPrompt.startsWith('[Attachment:');
+            if (hasRawPrompt) {
+                blockDialogScannedPrompt.textContent = `"${lastAnalyzedPrompt.length > 280 ? lastAnalyzedPrompt.substring(0, 277) + '...' : lastAnalyzedPrompt}"`;
+                blockDialogScannedPrompt.style.display = 'block';
+            } else {
+                blockDialogScannedPrompt.style.display = 'none';
+            }
+        }
+
+        if (blockDialogScannedMeta) {
+            const attMeta = lastAnalysisData?.attachment_metadata || lastAnalysisData?.analysis_scope || {};
+            const fn = attMeta.filename || (attachedFile ? attachedFile.name : '');
+            if (fn) {
+                blockDialogScannedMeta.textContent = `📄 Attached File: ${fn} (extracted text was included in security analysis)`;
+                blockDialogScannedMeta.style.display = 'block';
+            } else {
+                blockDialogScannedMeta.style.display = 'none';
+            }
+        }
 
         blockDialogOverlay.style.display = 'flex';
     }
@@ -658,6 +794,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (blockDialogCloseBtn) {
         blockDialogCloseBtn.addEventListener('click', () => {
             hideBlockDialog();
+        });
+    }
+
+    if (blockDialogProtectedBtn) {
+        blockDialogProtectedBtn.addEventListener('click', () => {
+            hideBlockDialog();
+            if (adminAuthToken) {
+                if (btnViewDetails) btnViewDetails.click();
+            } else {
+                if (authErrorMsg) authErrorMsg.style.display = 'none';
+                if (authModal) authModal.style.display = 'flex';
+                if (authUsername) authUsername.focus();
+            }
         });
     }
 
@@ -726,6 +875,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (attachmentChipContainer) attachmentChipContainer.style.display = 'none';
             if (inputTransparencyBadge) inputTransparencyBadge.style.display = 'none';
             if (resultContainer) resultContainer.style.display = 'none';
+            if (analysisScopeBox) analysisScopeBox.style.display = 'none';
+            if (errorState) errorState.style.display = 'none';
             lastAnalysisData = null;
             lastAnalyzedPrompt = '';
             lastScopeText = 'Security result: Based on prompt';
