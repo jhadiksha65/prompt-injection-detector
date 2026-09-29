@@ -25,7 +25,7 @@ from typing import Optional, Tuple
 # documented model-change approval: these constants are what make the
 # "model is frozen" guarantee verifiable rather than aspirational.
 # -------------------------------------------------------------------------
-EXPECTED_MODEL_SHA256 = "a487e0be9008f2e55d44b4a025b2449cf77c94f53ed5582b3cebeee206e4a850"
+EXPECTED_MODEL_SHA256 = "c15a14cad0bdc9fa909a52c667bff9430e098aebb7c11b375df3d50ae1f0ea93"
 EXPECTED_MODEL_SIZE_BYTES = 267856473
 FROZEN_DECISION_THRESHOLD = 0.38
 

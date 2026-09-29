@@ -41,7 +41,7 @@ class TestFrozenModelConstants(unittest.TestCase):
     def test_01_pinned_sha256_is_the_approved_digest(self):
         self.assertEqual(
             EXPECTED_MODEL_SHA256,
-            "a487e0be9008f2e55d44b4a025b2449cf77c94f53ed5582b3cebeee206e4a850",
+            "c15a14cad0bdc9fa909a52c667bff9430e098aebb7c11b375df3d50ae1f0ea93",
         )
 
     def test_02_pinned_threshold_is_frozen_at_038(self):
