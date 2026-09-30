@@ -40,3 +40,12 @@ data/final/*_patched.csv
 experiments/distilbert/*_patched.json
 experiments/distilbert/*_patched.pt
 *.log
+
+# Local experimental data and staging artifacts
+data/eval/
+data/final/train_v3.csv
+data/final/validation_v3.csv
+data/raw_sources/
+data/staging/
+experiments/distilbert/validation_v3_candidate_metadata.json
+
