@@ -1417,3 +1417,259 @@ body {
     justify-content: center;
   }
 }
+
+/* Layer 2 Demo Toggle */
+.layer2-demo-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-full);
+  border: 1px dashed var(--border-subtle);
+  background: var(--bg-surface-subtle);
+  transition: all var(--transition-fast);
+}
+
+.layer2-demo-toggle-label:hover {
+  border-color: var(--brand-purple);
+  color: var(--text-main);
+}
+
+.layer2-demo-toggle-label input[type="checkbox"] {
+  accent-color: var(--brand-purple);
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+/* Real Dual-Layer Pipeline Breakdown */
+.dual-pipeline-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-top: 0.5rem;
+}
+
+/* Pipeline Steps Ribbon */
+.pipeline-ribbon {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
+.pipeline-step-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.step-pill-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--border-subtle);
+  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.step-pill-status {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-full);
+  background: var(--border-subtle);
+  color: var(--text-subtle);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.step-pill-status.status-allow,
+.step-pill-status.status-safe,
+.step-pill-status.status-delivered {
+  background: var(--safe-bg);
+  color: var(--safe-text);
+  border: 1px solid var(--safe-border);
+}
+
+.step-pill-status.status-block {
+  background: var(--threat-bg);
+  color: var(--threat-text);
+  border: 1px solid var(--threat-border);
+}
+
+.step-pill-status.status-bypassed,
+.step-pill-status.status-not-executed {
+  background: var(--bg-surface-subtle);
+  color: var(--text-subtle);
+  border: 1px dashed var(--border-subtle);
+}
+
+.pipeline-connector {
+  color: var(--text-subtle);
+  font-size: 0.85rem;
+  font-weight: 700;
+  user-select: none;
+}
+
+/* Pipeline Section Cards */
+.pipeline-section-card {
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.pipeline-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pipeline-section-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pipeline-section-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.pipeline-section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-main);
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.pipeline-section-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0.15rem 0 0 0;
+}
+
+.pipeline-section-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.meta-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-full);
+  background: var(--safe-bg);
+  color: var(--safe-text);
+  border: 1px solid var(--safe-border);
+}
+
+.meta-badge.bypassed {
+  background: var(--threat-bg);
+  color: var(--threat-text);
+  border: 1px solid var(--threat-border);
+}
+
+.meta-badge-subtle {
+  font-size: 0.73rem;
+  color: var(--text-subtle);
+  font-weight: 500;
+}
+
+/* AI Response text block */
+.ai-response-content, .final-response-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.15rem;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-response-content.blocked-notice, .final-response-box.blocked-notice {
+  border-left: 4px solid var(--threat);
+  background: var(--threat-bg);
+  color: var(--threat-text);
+  font-weight: 500;
+}
+
+/* Layer 2 Inspection Grid */
+.layer2-inspection-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .layer2-inspection-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.layer2-metric {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.layer2-metric-lbl {
+  font-size: 0.72rem;
+  color: var(--text-subtle);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.layer2-metric-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.layer2-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  color: var(--warning-text);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+

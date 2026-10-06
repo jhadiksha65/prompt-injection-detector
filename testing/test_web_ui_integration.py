@@ -41,13 +41,14 @@ class TestFrontendSubmitFlowWiring(unittest.TestCase):
     def test_analyzer_no_longer_calls_detect_endpoint(self):
         self.assertNotIn("fetch('/detect'", self.js_source)
 
-    def test_analyzer_request_body_only_sends_prompt_no_demo_flags(self):
-        """The UI must never enable the Layer 2 demo mechanism (slice 4):
-        its request body must only ever include the prompt field."""
-        # The analyzer's fetch body is `JSON.stringify({ prompt })` — a single
-        # shorthand-property object literal with no other keys.
+    def test_analyzer_request_body_sends_standard_prompt_by_default(self):
+        """The UI analyzer's default fetch body is `JSON.stringify({ prompt })` — a single
+        shorthand-property object literal with no other keys."""
         self.assertIn("JSON.stringify({ prompt })", self.js_source)
-        self.assertNotIn("demo_layer2_leak", self.js_source)
+
+    def test_analyzer_supports_controlled_layer2_demo_opt_in(self):
+        """The UI analyzer supports an explicit, opt-in controlled Layer 2 demo flag."""
+        self.assertIn("JSON.stringify({ prompt, demo_layer2_leak: true })", self.js_source)
 
 
 class TestSecurePromptEndToEndForWebUI(unittest.TestCase):
@@ -113,6 +114,28 @@ class TestSecurePromptEndToEndForWebUI(unittest.TestCase):
         data = res.get_json()
         self.assertIn(data["layer2"]["decision"], ["SAFE", "MASK", "BLOCK"])
 
+    def test_controlled_layer2_demo_flow_intercepts_leak(self):
+        """Controlled demo: when demo_layer2_leak is sent and ENABLE_LAYER2_DEMO is true,
+        Layer 1 ALLOWs the prompt, LLM is called, Layer 2 intercepts the simulated leakage,
+        and the final response is protected."""
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch.dict(os.environ, {"ENABLE_LAYER2_DEMO": "true"}):
+            res = self.app.post("/secure-prompt", json={
+                "prompt": "Explain photosynthesis in simple terms.",
+                "demo_layer2_leak": True
+            })
+
+        data = res.get_json()
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(data["llm_called"])
+        self.assertEqual(data["layer1"]["decision"], "ALLOW")
+        self.assertEqual(data["layer2"]["decision"], "BLOCK")
+        self.assertTrue(data["layer2"]["leakage_details"]["leakage_detected"])
+        self.assertEqual(data["final_decision"], "BLOCK")
+        self.assertIn("SECURITY ALERT: The generated response was blocked", data["response"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

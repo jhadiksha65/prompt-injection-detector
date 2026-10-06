@@ -121,6 +121,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const threatEvidenceBox = document.getElementById('threatEvidenceBox');
     const threatEvidenceList = document.getElementById('threatEvidenceList');
 
+    // Dual-Layer Pipeline Elements
+    const demoLayer2Toggle = document.getElementById('demoLayer2Toggle');
+    const dualPipelineContainer = document.getElementById('dualPipelineContainer');
+    const stepPillLayer1 = document.getElementById('stepPillLayer1');
+    const stepPillLayer1Status = document.getElementById('stepPillLayer1Status');
+    const stepPillLlm = document.getElementById('stepPillLlm');
+    const stepPillLlmStatus = document.getElementById('stepPillLlmStatus');
+    const stepPillLayer2 = document.getElementById('stepPillLayer2');
+    const stepPillLayer2Status = document.getElementById('stepPillLayer2Status');
+    const stepPillFinal = document.getElementById('stepPillFinal');
+    const stepPillFinalStatus = document.getElementById('stepPillFinalStatus');
+
+    const aiResponseCard = document.getElementById('aiResponseCard');
+    const aiResponseSubtitle = document.getElementById('aiResponseSubtitle');
+    const aiLlmCalledBadge = document.getElementById('aiLlmCalledBadge');
+    const aiLlmModelBadge = document.getElementById('aiLlmModelBadge');
+    const aiResponseText = document.getElementById('aiResponseText');
+
+    const layer2SecurityCard = document.getElementById('layer2SecurityCard');
+    const layer2Subtitle = document.getElementById('layer2Subtitle');
+    const layer2DecisionBadge = document.getElementById('layer2DecisionBadge');
+    const layer2InspectedVal = document.getElementById('layer2InspectedVal');
+    const layer2LeakageVal = document.getElementById('layer2LeakageVal');
+    const layer2RiskScoreVal = document.getElementById('layer2RiskScoreVal');
+    const layer2RiskLevelVal = document.getElementById('layer2RiskLevelVal');
+    const layer2AlertBanner = document.getElementById('layer2AlertBanner');
+    const layer2AlertText = document.getElementById('layer2AlertText');
+
+    const finalResultCard = document.getElementById('finalResultCard');
+    const finalResultSubtitle = document.getElementById('finalResultSubtitle');
+    const finalResultBadge = document.getElementById('finalResultBadge');
+    const finalDeliveredResponseText = document.getElementById('finalDeliveredResponseText');
+
     // Analysis Scope Elements
     const analysisScopeBox = document.getElementById('analysisScopeBox');
     const analysisScopeToggle = document.getElementById('analysisScopeToggle');
@@ -441,15 +474,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             let res;
+            const isDemoLeak = !!(demoLayer2Toggle && demoLayer2Toggle.checked);
             if (attachedFile) {
                 // Submit multipart/form-data with prompt and file attachment
                 const formData = new FormData();
                 if (prompt) formData.append('prompt', prompt);
                 formData.append('attachment', attachedFile);
+                if (isDemoLeak) formData.append('demo_layer2_leak', 'true');
 
                 res = await fetch('/secure-prompt', {
                     method: 'POST',
                     body: formData
+                });
+            } else if (isDemoLeak) {
+                // Controlled demo submission for Layer 2 leakage presentation
+                res = await fetch('/secure-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt, demo_layer2_leak: true })
                 });
             } else {
                 // Standard JSON prompt submission
@@ -804,7 +846,197 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // --- Render Real Dual-Layer Pipeline Flow ---
+        renderDualPipelineDetails(data);
+
         resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // --- Render Dual Pipeline Visual Breakdown ---
+    function renderDualPipelineDetails(data) {
+        if (!dualPipelineContainer) return;
+
+        const layer1 = data.layer1 || {};
+        const layer2 = data.layer2 || {};
+        const llmCalled = data.llm_called === true;
+        const meta = data.llm_metadata || {};
+        const finalDecision = data.final_decision || 'ALLOW';
+        const finalResponse = data.response || '';
+
+        // 1. Ribbon Status Pills
+        if (stepPillLayer1Status) {
+            const l1Decision = layer1.decision || 'UNKNOWN';
+            stepPillLayer1Status.textContent = l1Decision;
+            stepPillLayer1Status.className = `step-pill-status ${l1Decision === 'ALLOW' ? 'status-allow' : 'status-block'}`;
+        }
+
+        if (stepPillLlmStatus) {
+            if (llmCalled) {
+                stepPillLlmStatus.textContent = 'GENERATED';
+                stepPillLlmStatus.className = 'step-pill-status status-safe';
+            } else {
+                stepPillLlmStatus.textContent = 'BYPASSED';
+                stepPillLlmStatus.className = 'step-pill-status status-bypassed';
+            }
+        }
+
+        if (stepPillLayer2Status) {
+            const l2Decision = layer2.decision || (llmCalled ? 'UNKNOWN' : 'NOT_EXECUTED');
+            if (!llmCalled || l2Decision === 'NOT_EXECUTED' || layer2.status === 'BYPASSED_DUE_TO_BLOCK') {
+                stepPillLayer2Status.textContent = 'NOT EXECUTED';
+                stepPillLayer2Status.className = 'step-pill-status status-not-executed';
+            } else if (l2Decision === 'SAFE') {
+                stepPillLayer2Status.textContent = 'SAFE';
+                stepPillLayer2Status.className = 'step-pill-status status-safe';
+            } else if (l2Decision === 'BLOCK') {
+                stepPillLayer2Status.textContent = 'BLOCKED';
+                stepPillLayer2Status.className = 'step-pill-status status-block';
+            } else {
+                stepPillLayer2Status.textContent = l2Decision;
+                stepPillLayer2Status.className = 'step-pill-status status-block';
+            }
+        }
+
+        if (stepPillFinalStatus) {
+            if (finalDecision === 'BLOCK') {
+                stepPillFinalStatus.textContent = 'BLOCKED';
+                stepPillFinalStatus.className = 'step-pill-status status-block';
+            } else if (finalDecision === 'MASK') {
+                stepPillFinalStatus.textContent = 'SANITIZED';
+                stepPillFinalStatus.className = 'step-pill-status status-allow';
+            } else {
+                stepPillFinalStatus.textContent = 'DELIVERED';
+                stepPillFinalStatus.className = 'step-pill-status status-delivered';
+            }
+        }
+
+        // 2. AI Response Section
+        if (aiResponseCard) {
+            if (llmCalled) {
+                if (aiResponseSubtitle) aiResponseSubtitle.textContent = 'Generated by the connected LLM';
+                if (aiLlmCalledBadge) {
+                    aiLlmCalledBadge.textContent = 'LLM Called: YES';
+                    aiLlmCalledBadge.className = 'meta-badge';
+                }
+                if (aiLlmModelBadge) {
+                    const providerText = meta.provider ? `${meta.provider} (${meta.model || 'default'})` : 'Local Connected LLM';
+                    const latencyText = meta.latency_ms ? ` • ${meta.latency_ms}ms` : '';
+                    aiLlmModelBadge.textContent = providerText + latencyText;
+                }
+                if (aiResponseText) {
+                    aiResponseText.className = 'ai-response-content';
+                    // Show raw response if sanitized or final response
+                    aiResponseText.textContent = data.raw_response || layer2.sanitized_response || finalResponse || '(No response text)';
+                }
+            } else {
+                if (aiResponseSubtitle) aiResponseSubtitle.textContent = 'LLM generation intercepted by Gateway';
+                if (aiLlmCalledBadge) {
+                    aiLlmCalledBadge.textContent = 'LLM Called: NO';
+                    aiLlmCalledBadge.className = 'meta-badge bypassed';
+                }
+                if (aiLlmModelBadge) {
+                    aiLlmModelBadge.textContent = 'Interception: Layer 1 Block';
+                }
+                if (aiResponseText) {
+                    aiResponseText.className = 'ai-response-content blocked-notice';
+                    aiResponseText.textContent = 'The connected LLM was NOT invoked because Layer 1 detected a prompt injection threat and blocked the request before reaching generation.';
+                }
+            }
+        }
+
+        // 3. Layer 2 Response Security Section
+        if (layer2SecurityCard) {
+            const l2Decision = layer2.decision || 'NOT_EXECUTED';
+            const isL2Executed = llmCalled && l2Decision !== 'NOT_EXECUTED' && layer2.status !== 'BYPASSED_DUE_TO_BLOCK';
+            const leakDetails = layer2.leakage_details || {};
+            const isLeakDetected = leakDetails.leakage_detected === true || l2Decision === 'BLOCK' || l2Decision === 'MASK';
+
+            if (layer2InspectedVal) layer2InspectedVal.textContent = isL2Executed ? 'YES' : 'NO';
+            if (layer2LeakageVal) {
+                layer2LeakageVal.textContent = isL2Executed ? (isLeakDetected ? 'YES ⚠️' : 'NO') : 'N/A';
+                layer2LeakageVal.style.color = (isL2Executed && isLeakDetected) ? 'var(--threat)' : 'inherit';
+            }
+            if (layer2RiskScoreVal) {
+                const score = layer2.risk_score !== undefined ? layer2.risk_score : (isL2Executed ? 0 : 0);
+                layer2RiskScoreVal.textContent = `${Math.round(score)} / 100`;
+            }
+            if (layer2RiskLevelVal) {
+                const lvl = layer2.risk_level || (isL2Executed ? 'LOW' : 'NONE');
+                layer2RiskLevelVal.textContent = lvl;
+                layer2RiskLevelVal.style.color = (lvl === 'HIGH' || lvl === 'CRITICAL') ? 'var(--threat)' : 'inherit';
+            }
+
+            if (layer2DecisionBadge) {
+                if (!isL2Executed) {
+                    layer2DecisionBadge.textContent = 'NOT EXECUTED';
+                    layer2DecisionBadge.className = 'badge-rec review';
+                } else if (l2Decision === 'SAFE') {
+                    layer2DecisionBadge.textContent = 'SAFE';
+                    layer2DecisionBadge.className = 'badge-rec allow';
+                } else if (l2Decision === 'BLOCK') {
+                    layer2DecisionBadge.textContent = 'BLOCKED';
+                    layer2DecisionBadge.className = 'badge-rec block';
+                } else if (l2Decision === 'MASK') {
+                    layer2DecisionBadge.textContent = 'MASKED';
+                    layer2DecisionBadge.className = 'badge-rec review';
+                } else {
+                    layer2DecisionBadge.textContent = l2Decision;
+                    layer2DecisionBadge.className = 'badge-rec block';
+                }
+            }
+
+            if (layer2AlertBanner) {
+                if (isL2Executed && isLeakDetected) {
+                    layer2AlertBanner.style.display = 'flex';
+                    if (layer2AlertText) {
+                        const leakType = leakDetails.findings && leakDetails.findings.length > 0
+                            ? leakDetails.findings.map(f => f.type || f.category || 'Sensitive Data').join(', ')
+                            : 'Sensitive Information Disclosure';
+                        layer2AlertText.textContent = `Layer 2 Security Intercepted Output: ${leakType}. Protected action taken: ${l2Decision}. Original response was blocked or sanitized.`;
+                    }
+                } else {
+                    layer2AlertBanner.style.display = 'none';
+                }
+            }
+        }
+
+        // 4. Final Result Section
+        if (finalResultCard) {
+            if (finalResultBadge) {
+                if (finalDecision === 'BLOCK') {
+                    finalResultBadge.textContent = 'BLOCKED';
+                    finalResultBadge.className = 'badge-rec block';
+                } else if (finalDecision === 'MASK') {
+                    finalResultBadge.textContent = 'MASKED / SANITIZED';
+                    finalResultBadge.className = 'badge-rec review';
+                } else {
+                    finalResultBadge.textContent = 'DELIVERED SAFELY';
+                    finalResultBadge.className = 'badge-rec allow';
+                }
+            }
+
+            if (finalResultSubtitle) {
+                if (!llmCalled) {
+                    finalResultSubtitle.textContent = 'Blocked at Layer 1 gateway before AI execution';
+                } else if (layer2.decision === 'BLOCK') {
+                    finalResultSubtitle.textContent = 'Generated output blocked by Layer 2 response validation';
+                } else if (layer2.decision === 'MASK') {
+                    finalResultSubtitle.textContent = 'Generated output sanitized before delivery';
+                } else {
+                    finalResultSubtitle.textContent = 'Response passed both Layer 1 and Layer 2 validation';
+                }
+            }
+
+            if (finalDeliveredResponseText) {
+                if (finalDecision === 'BLOCK') {
+                    finalDeliveredResponseText.className = 'final-response-box blocked-notice';
+                    finalDeliveredResponseText.textContent = finalResponse || '[SECURITY BLOCKED: Request was not processed due to policy violation]';
+                } else {
+                    finalDeliveredResponseText.className = 'final-response-box';
+                    finalDeliveredResponseText.textContent = finalResponse || '(No response text)';
+                }
+            }
+        }
     }
 
     // --- Block Dialog Functions (Preserving contract tested by test_block_dialog_ui.py) ---
