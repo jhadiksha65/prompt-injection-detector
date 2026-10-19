@@ -49,3 +49,6 @@ data/raw_sources/
 data/staging/
 experiments/distilbert/validation_v3_candidate_metadata.json
 
+# Submission archives and snapshot exports
+G25_Implementation.zip
+Group25_Cybersecurity_Case_Study_Implementation/

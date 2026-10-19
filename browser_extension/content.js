@@ -8,11 +8,36 @@ console.log("[Prompt Injection Detector] Content script initialized on:", window
 
 // Flag to track whether the current prompt submission was verified and approved
 let isSubmissionApproved = false;
+let isCheckingPrompt = false;
+let lastKnownPromptText = "";
 
 // How the currently-pending interception was triggered, so a subsequent
 // approved submission can be re-dispatched the same way (Enter key vs.
 // clicking a send button) instead of always guessing "click a button".
-let lastInterceptionContext = null; // { type: "keydown" | "click", element }
+let lastInterceptionContext = null; // { type: "keydown" | "click" | "submit", element }
+
+const KNOWN_PLACEHOLDERS = [
+    "message chatgpt",
+    "message chatgpt...",
+    "ask anything",
+    "ask anything...",
+    "what's on your mind",
+    "what's on your mind?",
+    "message claude",
+    "message claude...",
+    "reply to claude",
+    "reply to claude...",
+    "how can claude help you today",
+    "how can claude help you today?",
+    "ask gemini",
+    "ask gemini...",
+    "type a message",
+    "type a message...",
+    "type something",
+    "type something...",
+    "enter a prompt here",
+    "enter a prompt here..."
+];
 
 /**
  * Detects whether a text fragment is merely an application placeholder or watermark.
@@ -20,18 +45,21 @@ let lastInterceptionContext = null; // { type: "keydown" | "click", element }
 function isPlaceholderText(str) {
     if (!str) return true;
     const clean = str.trim().toLowerCase();
-    return (
-        clean === "message chatgpt" ||
-        clean === "message chatgpt..." ||
-        clean === "message claude" ||
-        clean === "message claude..." ||
-        clean === "ask gemini" ||
-        clean === "ask gemini..." ||
-        clean === "type a message" ||
-        clean === "type a message..." ||
-        clean === "ask anything" ||
-        clean === "ask anything..."
-    );
+    if (clean.length === 0) return true;
+    return KNOWN_PLACEHOLDERS.some(pl => clean === pl || clean.startsWith(pl));
+}
+
+/**
+ * Checks whether an element is an input, textarea, or contenteditable editor.
+ */
+function isPromptInputElement(el) {
+    if (!el) return false;
+    const elem = el.nodeType === 3 ? el.parentElement : el;
+    if (!elem) return false;
+    if (elem.isContentEditable || (typeof elem.getAttribute === "function" && elem.getAttribute("contenteditable") === "true")) return true;
+    if (elem.tagName === "TEXTAREA" || elem.tagName === "INPUT") return true;
+    if (typeof elem.closest === "function" && elem.closest('[contenteditable="true"], #prompt-textarea, textarea, rich-textarea, .ProseMirror, [role="textbox"]')) return true;
+    return false;
 }
 
 /**
@@ -43,11 +71,12 @@ function extractCleanElementText(el) {
 
     // 1. Textarea / Input value
     if (typeof el.value === "string" && el.value.trim()) {
-        return el.value.trim();
+        const val = el.value.trim();
+        if (!isPlaceholderText(val)) return val;
     }
 
     // 2. ProseMirror / ContentEditable paragraph structure (ChatGPT, Claude, etc.)
-    const paragraphs = el.querySelectorAll ? el.querySelectorAll("p") : [];
+    const paragraphs = el.querySelectorAll ? el.querySelectorAll("p, div.paragraph, div.ProseMirror-prompt") : [];
     if (paragraphs && paragraphs.length > 0) {
         const lines = [];
         for (const p of paragraphs) {
@@ -65,7 +94,22 @@ function extractCleanElementText(el) {
         }
     }
 
-    // 3. Fallback to textContent and innerText
+    // 3. Clone contenteditable to safely remove placeholder nodes
+    if (el.isContentEditable || el.getAttribute("contenteditable") === "true") {
+        try {
+            const clone = el.cloneNode(true);
+            const placeholders = clone.querySelectorAll('.placeholder, [data-placeholder]');
+            placeholders.forEach(pl => {
+                if (isPlaceholderText(pl.textContent)) pl.remove();
+            });
+            const text = (clone.innerText || clone.textContent || "").trim();
+            if (text && !isPlaceholderText(text)) {
+                return text;
+            }
+        } catch (_) {}
+    }
+
+    // 4. Fallback to textContent and innerText
     // In Chromium, innerText on unfocused/blurred tabs or ProseMirror divs
     // can return "\n" or empty string while textContent contains the text.
     const tc = (el.textContent || "").trim();
@@ -85,12 +129,15 @@ function extractCleanElementText(el) {
  * Extracts prompt text from various web LLM DOM structures (ChatGPT, Claude, Gemini).
  */
 function getPromptText() {
-    // 1. Check focused element if active and not body/html
+    // 1. Check focused element if active and inside an editor
     const active = document.activeElement;
     if (active && active !== document.body && active !== document.documentElement) {
-        if (active.isContentEditable || active.getAttribute("contenteditable") === "true" || active.tagName === "TEXTAREA" || active.tagName === "INPUT") {
-            const activeText = extractCleanElementText(active);
-            if (activeText) return activeText;
+        const container = active.isContentEditable
+            ? (active.closest('#prompt-textarea, [contenteditable="true"], .ProseMirror') || active)
+            : active;
+        if (isPromptInputElement(container)) {
+            const activeText = extractCleanElementText(container);
+            if (activeText && activeText.length > 0) return activeText;
         }
     }
 
@@ -98,24 +145,35 @@ function getPromptText() {
     const selectors = [
         '#prompt-textarea',
         '[data-testid="prompt-textarea"]',
-        'form div.ProseMirror',
+        'div#prompt-textarea[contenteditable="true"]',
         'div.ProseMirror[contenteditable="true"]',
+        'form div.ProseMirror',
         'div.ProseMirror',
         'div[contenteditable="true"][role="textbox"]',
         'div[contenteditable="true"]',
+        '#chat-textarea',
         'form textarea',
         'textarea[data-id="root"]',
+        'textarea[placeholder*="Ask" i]',
+        'textarea[placeholder*="Send" i]',
         'textarea',
         'rich-textarea',
         '[role="textbox"]'
     ];
 
     for (const sel of selectors) {
-        const elements = document.querySelectorAll(sel);
-        for (const el of elements) {
-            const text = extractCleanElementText(el);
-            if (text) return text;
-        }
+        try {
+            const elements = document.querySelectorAll(sel);
+            for (const el of elements) {
+                const text = extractCleanElementText(el);
+                if (text && text.length > 0) return text;
+            }
+        } catch (_) {}
+    }
+
+    // 3. Fallback to continuously-tracked input text if DOM was just cleared
+    if (lastKnownPromptText && lastKnownPromptText.trim().length > 0) {
+        return lastKnownPromptText.trim();
     }
 
     return "";
@@ -124,15 +182,17 @@ function getPromptText() {
 /**
  * Creates and renders the Cybersecurity Warning / Block Modal.
  *
- * `backendData` is the full /secure-prompt response (the same verdict
- * contract the web UI uses): the Layer 1 verdict/explanation is nested
- * under `backendData.layer1`, and the combined pipeline outcome is in
- * `backendData.final_decision`. Only Layer 1's own BLOCK decision (the
- * same HIGH/CRITICAL block the web UI shows) prevents the "Proceed"
- * option — Layer 1 is what actually stopped this prompt from reaching
- * the model. The raw prompt is intentionally never rendered here.
+ * Visually unified with the Analyzer's blocking dialog:
+ * - Red ⛔ icon and authoritative headline
+ * - Viewport-constrained modal card with smooth internal scrolling
+ * - Scanned input quote preview
+ * - 3-cell metric grid (Threat Source, Attack Vector, Risk score & badge)
+ * - Threat evidence section (when available)
+ * - Why it was blocked explanation box
+ * - Clean action buttons ("Try a Safer Prompt" / "Close")
+ * - No session re-authentication or password prompts
  */
-function showSecurityModal(backendData, onDismiss) {
+function showSecurityModal(backendData, onDismiss, promptText = "") {
     // Remove any existing modal
     const existing = document.getElementById("pid-security-modal-overlay");
     if (existing) existing.remove();
@@ -148,228 +208,271 @@ function showSecurityModal(backendData, onDismiss) {
         left: 0;
         width: 100vw;
         height: 100vh;
-        background: rgba(10, 15, 29, 0.85);
-        backdrop-filter: blur(8px);
+        background: rgba(15, 23, 42, 0.75);
+        backdrop-filter: blur(6px);
         z-index: 99999999;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-        color: #f1f5f9;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        color: #0f172a;
+        padding: 16px;
+        box-sizing: border-box;
     `;
 
     const isCritical = layer1.risk_level === "CRITICAL";
     const isHigh = layer1.risk_level === "HIGH";
-    const isMedium = layer1.risk_level === "MEDIUM" || overallDecision === "WARNING";
-    // Only a genuine Layer 1 BLOCK (prompt never reached the AI) removes the
-    // "Proceed" option — matches the backend's own decision, never a
-    // client-invented security judgement.
-    const isBlock = layer1.decision === "BLOCK";
+    const isBlock = layer1.decision === "BLOCK" || isCritical || isHigh;
 
-    let headerColor = "#ef4444";
-    let badgeBg = "rgba(239, 68, 68, 0.2)";
-    let badgeBorder = "#ef4444";
-    let modalTitle = "CRITICAL THREAT BLOCKED";
+    let modalIcon = "⛔";
+    let modalTitle = "Prompt Blocked Before Reaching the AI";
+    let modalSubtitle = "This prompt was not sent to the AI model. Our security layer identified it before generation began.";
+    let badgeBg = "#fef2f2";
+    let badgeColor = "#991b1b";
+    let badgeBorder = "#fecaca";
+    let riskBarColor = "#ef4444";
+    let reasonBg = "#fef2f2";
+    let reasonColor = "#991b1b";
+    let reasonBorder = "#fecaca";
 
     if (isCritical) {
-        headerColor = "#ef4444";
-        badgeBg = "rgba(239, 68, 68, 0.2)";
-        badgeBorder = "#ef4444";
-        modalTitle = "CRITICAL THREAT BLOCKED";
+        modalIcon = "⛔";
+        modalTitle = "Prompt Blocked Before Reaching the AI";
+        modalSubtitle = "This prompt was not sent to the AI model. Our security layer identified it before generation began.";
+        badgeBg = "#fef2f2";
+        badgeColor = "#991b1b";
+        badgeBorder = "#fecaca";
+        riskBarColor = "#ef4444";
+        reasonBg = "#fef2f2";
+        reasonColor = "#991b1b";
+        reasonBorder = "#fecaca";
     } else if (isHigh) {
-        headerColor = "#f97316";
-        badgeBg = "rgba(249, 115, 22, 0.2)";
-        badgeBorder = "#f97316";
-        modalTitle = "HIGH-RISK PROMPT BLOCKED";
+        modalIcon = "⛔";
+        modalTitle = "Prompt Blocked Before Reaching the AI";
+        modalSubtitle = "This prompt was not sent to the AI model. Our security layer identified it before generation began.";
+        badgeBg = "#fff7ed";
+        badgeColor = "#9a3412";
+        badgeBorder = "#ffedd5";
+        riskBarColor = "#f97316";
+        reasonBg = "#fff7ed";
+        reasonColor = "#9a3412";
+        reasonBorder = "#fed7aa";
     } else {
-        headerColor = "#f59e0b";
-        badgeBg = "rgba(245, 158, 11, 0.2)";
-        badgeBorder = "#f59e0b";
-        modalTitle = "SECURITY ADVISORY WARNING";
-    }
-
-    // Section for critical re-auth vs high block vs advisory proceed
-    let securityActionHtml = "";
-    if (isCritical) {
-        // Alert Dispatched Notice (for critical blocked threats)
-        const alertHtml = (backendData.alert_status === "SENT" || backendData.email_status === "SENT") ? `
-            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 18px;">📧</span>
-                <div style="font-size: 12px; color: #93c5fd; line-height: 1.4;">
-                    <strong>Alert Dispatched:</strong> Security incident logged and reported to the security team.
-                </div>
-            </div>
-        ` : '';
-
-        securityActionHtml = `
-            ${alertHtml}
-            <div style="background: #0f172a; border-radius: 8px; padding: 14px; margin-bottom: 18px; border: 1px solid #334155;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                    <span style="font-size: 16px;">🔒</span>
-                    <span style="font-size: 13px; font-weight: 700; color: #f1f5f9;">Session Suspended • Re-Authentication</span>
-                </div>
-                <p style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
-                    Critical prompt injection attempt detected. Enter authorized credentials to unlock session and override.
-                </p>
-                <div style="display: flex; gap: 8px;">
-                    <input id="pid-auth-pwd" type="password" placeholder="Enter authorized administrator credentials." style="
-                        flex: 1;
-                        background: #1e293b;
-                        border: 1px solid #475569;
-                        padding: 8px 12px;
-                        border-radius: 6px;
-                        color: #fff;
-                        font-size: 13px;
-                        outline: none;
-                    " />
-                    <button id="pid-btn-reauth" style="
-                        background: #ef4444;
-                        color: #fff;
-                        border: none;
-                        padding: 8px 14px;
-                        border-radius: 6px;
-                        font-weight: 700;
-                        cursor: pointer;
-                        font-size: 12px;
-                    ">Unlock</button>
-                </div>
-                <div id="pid-auth-msg" style="font-size: 11px; margin-top: 6px; display: none;"></div>
-            </div>
-        `;
-    } else if (isHigh) {
-        // High Risk Blocked (No session suspension)
-        const alertHtml = (backendData.alert_status === "SENT" || backendData.email_status === "SENT") ? `
-            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 18px;">📧</span>
-                <div style="font-size: 12px; color: #93c5fd; line-height: 1.4;">
-                    <strong>Alert Dispatched:</strong> High-risk security event logged and reported.
-                </div>
-            </div>
-        ` : '';
-
-        securityActionHtml = `
-            ${alertHtml}
-            <div style="background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 18px;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                    <span style="font-size: 16px;">⚠️</span>
-                    <strong style="font-size: 13px; color: #f97316;">High-Risk Adversarial Input Blocked</strong>
-                </div>
-                <p style="font-size: 12px; color: #cbd5e1; margin: 0; line-height: 1.4;">
-                    This prompt contains high-risk instruction patterns and was blocked by Layer 1 security before reaching the model.
-                </p>
-            </div>
-        `;
-    } else {
-        // Advisory Warning Note for Medium risk
-        securityActionHtml = `
-            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 18px;">
-                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                    <span style="font-size: 16px;">⚠️</span>
-                    <strong style="font-size: 13px; color: #fbbf24;">Security Advisory Notice</strong>
-                </div>
-                <p style="font-size: 12px; color: #cbd5e1; margin: 0; line-height: 1.4;">
-                    Potential prompt injection indicators or elevated risk detected. Review your prompt or click <strong>Proceed with Submission</strong> if this input is intended.
-                </p>
-            </div>
-        `;
+        modalIcon = "⚠️";
+        modalTitle = "Security Advisory Notice";
+        modalSubtitle = "Potential prompt injection indicators detected before submission. Review findings below before proceeding.";
+        badgeBg = "#fffbeb";
+        badgeColor = "#92400e";
+        badgeBorder = "#fde68a";
+        riskBarColor = "#f59e0b";
+        reasonBg = "#fffbeb";
+        reasonColor = "#92400e";
+        reasonBorder = "#fde68a";
     }
 
     const footerButtonsHtml = isBlock ? `
         <button id="pid-btn-dismiss" style="
-            background: #334155;
-            color: #f1f5f9;
+            background: #0f172a;
+            color: #ffffff;
             border: none;
-            padding: 10px 18px;
+            padding: 9px 18px;
             border-radius: 8px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
-        ">Cancel & Edit Prompt</button>
+            transition: opacity 0.15s ease;
+        ">Try a Safer Prompt</button>
+        <button id="pid-btn-close" style="
+            background: #ffffff;
+            color: #0f172a;
+            border: 1px solid #e2e8f0;
+            padding: 9px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        ">Close</button>
     ` : `
         <button id="pid-btn-dismiss" style="
-            background: #334155;
-            color: #f1f5f9;
-            border: none;
-            padding: 10px 18px;
+            background: #ffffff;
+            color: #0f172a;
+            border: 1px solid #e2e8f0;
+            padding: 9px 16px;
             border-radius: 8px;
+            font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: background 0.15s ease;
         ">Cancel & Edit Prompt</button>
         <button id="pid-btn-proceed" style="
-            background: #f59e0b;
-            color: #0f172a;
+            background: #0f172a;
+            color: #ffffff;
             border: none;
-            padding: 10px 18px;
+            padding: 9px 18px;
             border-radius: 8px;
-            font-weight: 700;
+            font-size: 13px;
+            font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: opacity 0.15s ease;
         ">Proceed with Submission</button>
     `;
 
     overlay.innerHTML = `
         <div style="
-            background: #1e293b;
-            border: 2px solid ${badgeBorder};
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
             border-radius: 16px;
             width: 90%;
-            max-width: 520px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            max-width: 540px;
+            max-height: min(88vh, 660px);
+            box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.15), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
-            animation: pidFadeIn 0.2s ease-out;
+            box-sizing: border-box;
+            text-align: left;
         ">
-            <!-- Header -->
-            <div style="background: ${badgeBg}; border-bottom: 1px solid ${badgeBorder}; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 24px;">🛡️</span>
-                    <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: ${headerColor};">
-                        ${modalTitle}
-                    </h3>
-                </div>
-                <span style="
-                    background: ${badgeBorder};
-                    color: ${isBlock ? "#fff" : "#0f172a"};
-                    font-size: 12px;
-                    font-weight: 800;
-                    padding: 4px 10px;
-                    border-radius: 20px;
-                    text-transform: uppercase;
-                "><span id="pid-risk-level-text"></span></span>
+            <!-- Pinned Header -->
+            <div style="
+                flex-shrink: 0;
+                padding: 20px 24px 14px 24px;
+                border-bottom: 1px solid #e2e8f0;
+                text-align: center;
+                background: #ffffff;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 4px;
+            ">
+                <div style="font-size: 28px; line-height: 1;" aria-hidden="true">${modalIcon}</div>
+                <h3 style="margin: 4px 0 0 0; font-size: 17px; font-weight: 700; color: #0f172a; letter-spacing: -0.01em;">
+                    ${modalTitle}
+                </h3>
+                <p style="margin: 0; font-size: 12.5px; color: #64748b; line-height: 1.45; max-width: 440px;">
+                    ${modalSubtitle}
+                </p>
             </div>
 
-            <!-- Body -->
-            <div style="padding: 24px;">
-                <!-- Risk Metric Card -->
-                <div style="background: #0f172a; border-radius: 10px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
-                        <span style="font-size: 13px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Estimated Threat Risk</span>
-                        <span style="font-size: 22px; font-weight: 800; color: ${headerColor};"><span id="pid-risk-score-text"></span> / 100</span>
+            <!-- Scrollable Body -->
+            <div style="
+                flex: 1 1 auto;
+                overflow-y: auto;
+                min-height: 0;
+                padding: 14px 24px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                box-sizing: border-box;
+                overscroll-behavior: contain;
+            ">
+                <!-- Scanned Input Section -->
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Scanned Input</span>
+                    <div style="
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        padding: 9px 12px;
+                        max-height: 96px;
+                        overflow-y: auto;
+                    ">
+                        <div id="pid-scanned-prompt-text" style="
+                            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                            font-size: 12px;
+                            line-height: 1.45;
+                            color: #1e293b;
+                            white-space: pre-wrap;
+                            word-break: break-word;
+                        "></div>
                     </div>
-                    <!-- Progress Bar -->
-                    <div style="width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden;">
-                        <div id="pid-risk-bar-fill" style="width: 0%; height: 100%; background: ${headerColor}; transition: width 0.4s ease;"></div>
+                </div>
+
+                <!-- Threat & Risk Breakdown Grid (3 cells matching Analyzer) -->
+                <div style="
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 8px;
+                ">
+                    <!-- Cell 1: Threat Source -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; gap: 2px;">
+                        <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b;">Threat Source</span>
+                        <span style="font-size: 12.5px; font-weight: 700; color: #0f172a;">User Prompt</span>
+                    </div>
+
+                    <!-- Cell 2: Attack Vector -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; gap: 2px;">
+                        <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b;">Attack Vector</span>
+                        <span id="pid-attack-type-text" style="font-size: 12.5px; font-weight: 700; color: #0f172a; word-break: break-word;"></span>
+                    </div>
+
+                    <!-- Cell 3: Risk -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 10px; display: flex; flex-direction: column; gap: 2px;">
+                        <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b;">Risk</span>
+                        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 4px;">
+                            <span style="font-size: 12.5px; font-weight: 800; color: #0f172a;"><span id="pid-risk-score-text"></span> / 100</span>
+                            <span style="
+                                background: ${badgeBg};
+                                color: ${badgeColor};
+                                border: 1px solid ${badgeBorder};
+                                font-size: 9px;
+                                font-weight: 700;
+                                padding: 1px 5px;
+                                border-radius: 9999px;
+                                text-transform: uppercase;
+                                letter-spacing: 0.03em;
+                            "><span id="pid-risk-level-text"></span></span>
+                        </div>
+                        <div style="width: 100%; height: 5px; background: #e2e8f0; border-radius: 3px; overflow: hidden; margin-top: 3px;">
+                            <div id="pid-risk-bar-fill" style="width: 0%; height: 100%; background: ${riskBarColor}; transition: width 0.4s ease;"></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Threat Details -->
-                <div style="margin-bottom: 16px;">
-                    <div style="font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Detected Attack Vector</div>
-                    <div id="pid-attack-type-text" style="font-size: 15px; color: #f8fafc; font-weight: 600;"></div>
+                <!-- Threat Evidence Section (if evidence is detected) -->
+                <div id="pid-evidence-section" style="display: none; flex-direction: column; gap: 4px;">
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Threat Evidence</span>
+                    <div style="
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        border-left: 3px solid #ef4444;
+                        border-radius: 6px;
+                        padding: 8px 12px;
+                        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+                        font-size: 12px;
+                        color: #0f172a;
+                        font-style: italic;
+                        word-break: break-word;
+                    "><span id="pid-evidence-text"></span></div>
                 </div>
 
-                <div style="margin-bottom: 16px;">
-                    <div style="font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Security Explanation</div>
-                    <div id="pid-reason-text" style="font-size: 14px; color: #cbd5e1; line-height: 1.5; background: #0f172a; padding: 12px; border-radius: 8px; border-left: 4px solid ${badgeBorder};"></div>
+                <!-- Why It Was Blocked / Security Explanation -->
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Why It Was Blocked</span>
+                    <div id="pid-reason-text" style="
+                        font-size: 12px;
+                        color: ${reasonColor};
+                        background: ${reasonBg};
+                        border: 1px solid ${reasonBorder};
+                        border-radius: 8px;
+                        padding: 9px 12px;
+                        line-height: 1.45;
+                    "></div>
                 </div>
+            </div>
 
-                <!-- Security Action Section (Re-Auth or Advisory) -->
-                ${securityActionHtml}
-
-                <!-- Footer Actions -->
-                <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                    ${footerButtonsHtml}
-                </div>
+            <!-- Pinned Actions Footer -->
+            <div style="
+                flex-shrink: 0;
+                padding: 12px 24px;
+                border-top: 1px solid #e2e8f0;
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                gap: 10px;
+                background: #ffffff;
+            ">
+                ${footerButtonsHtml}
             </div>
         </div>
     `;
@@ -379,6 +482,10 @@ function showSecurityModal(backendData, onDismiss) {
     // All backend-derived dynamic text is written via textContent, never
     // interpolated into the innerHTML template above — this is the only
     // place any of these values touch the DOM.
+    const scannedEl = document.getElementById("pid-scanned-prompt-text");
+    if (scannedEl) {
+        scannedEl.textContent = promptText || "No prompt text captured.";
+    }
     document.getElementById("pid-risk-level-text").textContent = layer1.risk_level || "UNKNOWN";
     const riskScoreValue = Number(layer1.risk_score) || 0;
     document.getElementById("pid-risk-score-text").textContent = String(riskScoreValue);
@@ -386,10 +493,34 @@ function showSecurityModal(backendData, onDismiss) {
     document.getElementById("pid-attack-type-text").textContent = layer1.attack_type || "Unknown";
     document.getElementById("pid-reason-text").textContent = layer1.reason || "No further explanation provided.";
 
-    document.getElementById("pid-btn-dismiss").addEventListener("click", () => {
+    // Hydrate evidence section if available
+    const evidenceEl = document.getElementById("pid-evidence-text");
+    const evidenceSec = document.getElementById("pid-evidence-section");
+    const rawEvidence = (backendData.threat_attribution && backendData.threat_attribution.prompt_evidence)
+        || (layer1.matched_indicators && layer1.matched_indicators.length > 0 ? layer1.matched_indicators[0] : "");
+    if (evidenceEl && evidenceSec) {
+        if (rawEvidence && String(rawEvidence).trim().length > 0) {
+            evidenceEl.textContent = String(rawEvidence).trim();
+            evidenceSec.style.display = "flex";
+        } else {
+            evidenceSec.style.display = "none";
+        }
+    }
+
+    const dismissHandler = () => {
         overlay.remove();
         if (onDismiss) onDismiss();
-    });
+    };
+
+    const dismissBtn = document.getElementById("pid-btn-dismiss");
+    if (dismissBtn) {
+        dismissBtn.addEventListener("click", dismissHandler);
+    }
+
+    const closeBtn = document.getElementById("pid-btn-close");
+    if (closeBtn) {
+        closeBtn.addEventListener("click", dismissHandler);
+    }
 
     const proceedBtn = document.getElementById("pid-btn-proceed");
     if (proceedBtn) {
@@ -397,35 +528,6 @@ function showSecurityModal(backendData, onDismiss) {
             isSubmissionApproved = true;
             overlay.remove();
             triggerOriginalSubmit();
-        });
-    }
-
-    const reauthBtn = document.getElementById("pid-btn-reauth");
-    if (reauthBtn) {
-        reauthBtn.addEventListener("click", () => {
-            const pwd = document.getElementById("pid-auth-pwd").value.trim();
-            const msg = document.getElementById("pid-auth-msg");
-            
-            msg.style.display = "block";
-            msg.style.color = "#cbd5e1";
-            msg.textContent = "⏳ Verifying with security backend...";
-
-            chrome.runtime.sendMessage({
-                type: "UNLOCK_SESSION",
-                password: pwd
-            }, (response) => {
-                if (response && response.success) {
-                    msg.style.color = "#10b981";
-                    msg.textContent = "✅ Identity verified! Session unlocked.";
-                    setTimeout(() => {
-                        overlay.remove();
-                    }, 1000);
-                } else {
-                    msg.style.color = "#ef4444";
-                    const errMsg = response?.error || "Invalid credentials. Access remains locked.";
-                    msg.textContent = `❌ ${errMsg}`;
-                }
-            });
         });
     }
 }
@@ -517,34 +619,106 @@ function showBackendUnavailableNotice() {
     }, 5000);
 }
 
+const SEND_BUTTON_SELECTORS = [
+    'button[data-testid="send-button"]',
+    'button[data-testid="fruitjuice-send-button"]',
+    'button[data-testid*="send" i]',
+    'button[aria-label*="send prompt" i]',
+    'button[aria-label*="send message" i]',
+    'button[aria-label*="send" i]',
+    'button[aria-label*="submit" i]',
+    'button#send-button',
+    '#send-message-button',
+    'form button[type="submit"]',
+    'button.send-button',
+    '[role="button"][data-testid*="send" i]',
+    '[role="button"][aria-label*="send" i]'
+];
+
+function findSubmitButton(target) {
+    if (!target) return null;
+    const el = target.nodeType === 3 ? target.parentElement : target;
+    if (!el || typeof el.closest !== "function") return null;
+
+    for (const selector of SEND_BUTTON_SELECTORS) {
+        try {
+            const btn = el.closest(selector);
+            if (btn) return btn;
+        } catch (_) {}
+    }
+    const anyBtn = el.closest('button, [role="button"]');
+    if (anyBtn) {
+        const aria = (anyBtn.getAttribute("aria-label") || "").toLowerCase();
+        const title = (anyBtn.getAttribute("title") || "").toLowerCase();
+        const testid = (anyBtn.getAttribute("data-testid") || "").toLowerCase();
+        const id = (anyBtn.id || "").toLowerCase();
+        if (aria.includes("send") || aria.includes("submit") || aria.includes("prompt") ||
+            title.includes("send") || title.includes("submit") ||
+            testid.includes("send") || testid.includes("submit") ||
+            id.includes("send") || id.includes("submit")) {
+            return anyBtn;
+        }
+    }
+    return null;
+}
+
 /**
  * Triggers prompt submission after inspection passes, replaying it the same
  * way it was originally triggered (Enter key vs. a send button click).
  */
 function triggerOriginalSubmit() {
+    // 1. If originally keydown, re-dispatch Enter with full standard keyboard properties
     if (lastInterceptionContext && lastInterceptionContext.type === "keydown" && lastInterceptionContext.element) {
-        const syntheticEnter = new KeyboardEvent("keydown", {
-            key: "Enter",
-            code: "Enter",
-            bubbles: true,
-            cancelable: true
-        });
-        lastInterceptionContext.element.dispatchEvent(syntheticEnter);
-        return;
+        const targetEl = document.contains(lastInterceptionContext.element)
+            ? lastInterceptionContext.element
+            : (document.querySelector('#prompt-textarea, [contenteditable="true"], textarea') || document.activeElement);
+        if (targetEl) {
+            const enterDown = new KeyboardEvent("keydown", {
+                key: "Enter",
+                code: "Enter",
+                keyCode: 13,
+                which: 13,
+                bubbles: true,
+                cancelable: true
+            });
+            targetEl.dispatchEvent(enterDown);
+            return;
+        }
     }
 
-    // Look for standard submit button or trigger form submit
-    const sendButton = document.querySelector(
-        'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send Message"], button#send-button'
-    );
-    if (sendButton) {
-        sendButton.click();
+    // 2. If originally click on button, re-trigger click on the exact button
+    if (lastInterceptionContext && lastInterceptionContext.type === "click" && lastInterceptionContext.element) {
+        if (document.contains(lastInterceptionContext.element)) {
+            lastInterceptionContext.element.click();
+            return;
+        }
+    }
+
+    // 3. Fallback: Look for standard submit button or trigger form submit
+    for (const selector of SEND_BUTTON_SELECTORS) {
+        try {
+            const btn = document.querySelector(selector);
+            if (btn) {
+                btn.click();
+                return;
+            }
+        } catch (_) {}
+    }
+
+    const form = document.querySelector('form:has(#prompt-textarea), form:has(textarea)');
+    if (form && typeof form.requestSubmit === "function") {
+        form.requestSubmit();
     }
 }
 
 function approveAndResubmit() {
     isSubmissionApproved = true;
+    lastKnownPromptText = "";
     triggerOriginalSubmit();
+    // Safety auto-reset: ensures isSubmissionApproved cannot stay stuck as true
+    setTimeout(() => {
+        isSubmissionApproved = false;
+    }, 600);
 }
 
 /**
@@ -563,14 +737,27 @@ function handlePromptInterception(e) {
         return; // Allow the just-approved, re-dispatched submission through
     }
 
-    const promptText = getPromptText();
-    if (!promptText || promptText.length < 3) return;
+    if (isCheckingPrompt) {
+        // Prevent duplicate concurrent requests while a check is in flight
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+    }
+
+    const currentText = getPromptText();
+    const promptText = (currentText && currentText.trim().length > 0)
+        ? currentText.trim()
+        : (lastKnownPromptText ? lastKnownPromptText.trim() : "");
+
+    if (!promptText || promptText.length < 2) return;
 
     // Prevent the default action FIRST, synchronously, before any await.
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
 
+    isCheckingPrompt = true;
     lastInterceptionContext = { type: e.type, element: e.target };
 
     // Delegates to the background service worker, which calls the real
@@ -579,6 +766,7 @@ function handlePromptInterception(e) {
         type: "CHECK_PROMPT",
         prompt: promptText
     }, (response) => {
+        isCheckingPrompt = false;
         if (!response || !response.success || !response.data) {
             // Fail CLOSED: the prompt was never sent to the AI, and it stays
             // that way — we do not fall back to "assume safe".
@@ -597,7 +785,8 @@ function handlePromptInterception(e) {
             // silently deciding on the client.
             showSecurityModal(data, () => {
                 lastInterceptionContext = null;
-            });
+                isCheckingPrompt = false;
+            }, promptText);
         } else {
             showSafeToast(layer1.risk_score);
             approveAndResubmit();
@@ -607,9 +796,9 @@ function handlePromptInterception(e) {
 
 // 1. Intercept Enter Key in inputs
 document.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.isComposing) {
         const active = document.activeElement;
-        if (active && (active.isContentEditable || active.tagName === "TEXTAREA")) {
+        if (isPromptInputElement(active) || isPromptInputElement(e.target)) {
             handlePromptInterception(e);
         }
     }
@@ -618,15 +807,33 @@ document.addEventListener("keydown", (e) => {
 // 2. Intercept Click on Submit Buttons
 document.addEventListener("click", (e) => {
     const target = e.target;
-    const button = target.closest(
-        'button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="Send Message"], button#send-button'
-    );
+    const button = findSubmitButton(target);
     if (button) {
         handlePromptInterception(e);
     }
 }, true);
 
-// 3. Respond to Popup queries
+// 3. Intercept Form Submission (e.g. accessibility, programmatic, or Enter in form)
+document.addEventListener("submit", (e) => {
+    handlePromptInterception(e);
+}, true);
+
+// 4. Continuously track prompt text as user types and clicks so it is never lost on blur/clear
+function trackPromptInput(e) {
+    const text = getPromptText();
+    if (text && text.trim().length > 0) {
+        lastKnownPromptText = text.trim();
+    }
+}
+
+document.addEventListener("input", trackPromptInput, true);
+document.addEventListener("keyup", trackPromptInput, true);
+document.addEventListener("change", trackPromptInput, true);
+document.addEventListener("paste", trackPromptInput, true);
+document.addEventListener("pointerdown", trackPromptInput, true);
+document.addEventListener("mousedown", trackPromptInput, true);
+
+// 5. Respond to Popup queries
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "GET_CURRENT_PROMPT") {
         const text = getPromptText();

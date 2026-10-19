@@ -116,11 +116,43 @@ def log_incident(
     return req_id
 
 
-def get_all_incidents(limit: int = 50) -> List[Dict[str, Any]]:
-    """Retrieves recent incidents."""
+def get_all_incidents(
+    limit: int = 50,
+    source: Optional[str] = None,
+    l1_decision: Optional[str] = None,
+    l2_decision: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Retrieves recent incidents with optional filtering."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM incidents ORDER BY id DESC LIMIT ?", (limit,))
+
+    conditions = []
+    params = []
+
+    if source:
+        s = source.strip().lower()
+        if s in ["gateway", "gw", "api"]:
+            conditions.append("request_id LIKE 'GW-%'")
+        elif s in ["playground", "demo", "ext"]:
+            conditions.append("request_id LIKE 'EXT-%'")
+        elif s in ["analyzer", "internal", "req"]:
+            conditions.append("request_id LIKE 'REQ-%'")
+
+    if l1_decision and l1_decision.strip():
+        conditions.append("layer1_decision = ?")
+        params.append(l1_decision.strip().upper())
+
+    if l2_decision and l2_decision.strip():
+        conditions.append("layer2_decision = ?")
+        params.append(l2_decision.strip().upper())
+
+    query = "SELECT * FROM incidents"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     incidents = [dict(row) for row in rows]
     conn.close()

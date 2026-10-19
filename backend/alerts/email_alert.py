@@ -98,9 +98,9 @@ System Status:
 
             # Connect using SSL (port 465) or standard TLS (other ports)
             if smtp_port == 465:
-                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=3)
             else:
-                server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+                server = smtplib.SMTP(smtp_host, smtp_port, timeout=3)
                 server.starttls()
                 
             server.login(smtp_user, smtp_pass)

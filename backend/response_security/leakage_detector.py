@@ -25,7 +25,7 @@ class ResponseLeakageDetector:
 
         # 2. Secrets, API Keys & Credential Patterns
         self.secret_patterns = [
-            (r"\b(sk-[a-zA-Z0-9]{20,48}|ghp_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z-_]{35})\b", 95, "Live API Key leaked (OpenAI / GitHub / Google)"),
+            (r"\b(SYNTHETIC_CANARY_[A-Za-z0-9_]+|sk-[a-zA-Z0-9]{20,48}|ghp_[a-zA-Z0-9]{36}|AIza[0-9A-Za-z-_]{35})\b", 95, "Credential / Canary Token leaked"),
             (r"\b(password\s*=\s*['\"][^\s'\"]{6,}['\"]|db_password\s*[:=]\s*[^\s,;]+)\b", 95, "Database password / credential assignment leaked"),
             (r"\b(postgres|mysql|mongodb(\+srv)?):\/\/[^\s:]+:[^\s@]+@[^\s\/]+", 95, "Database connection URI with credentials leaked"),
             (r"-----BEGIN (RSA|OPENSSH|EC|DSA|PRIVATE) KEY-----", 100, "Private cryptographic key leaked"),
@@ -62,7 +62,13 @@ class ResponseLeakageDetector:
         for pattern, score, reason in self.system_leakage_patterns:
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for m in matches:
-                findings.append({"type": "System Prompt Leakage", "match": m.group(0)[:50], "score": score, "reason": reason})
+                findings.append({
+                    "type": "System Prompt Leakage",
+                    "category": "System Instructions / Prompts",
+                    "match": "[WITHHELD_BY_SECURITY]",
+                    "score": score,
+                    "reason": reason
+                })
                 if score > max_score:
                     max_score = score
 
@@ -70,7 +76,13 @@ class ResponseLeakageDetector:
         for pattern, score, reason in self.secret_patterns:
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for m in matches:
-                findings.append({"type": "Credential Leakage", "match": "[REDACTED_SECRET]", "score": score, "reason": reason})
+                findings.append({
+                    "type": "Credential Leakage",
+                    "category": "Secret Credentials / Canary Tokens",
+                    "match": "[WITHHELD_BY_SECURITY]",
+                    "score": score,
+                    "reason": reason
+                })
                 # Mask secrets
                 masked_text = re.sub(pattern, "[CONFIDENTIAL_SECRET_MASKED]", masked_text, flags=re.IGNORECASE)
                 if score > max_score:
@@ -80,7 +92,13 @@ class ResponseLeakageDetector:
         for pattern, score, reason in self.pii_patterns:
             matches = re.finditer(pattern, text)
             for m in matches:
-                findings.append({"type": "PII Detected", "match": "[REDACTED_PII]", "score": score, "reason": reason})
+                findings.append({
+                    "type": "PII Detected",
+                    "category": "Personally Identifiable Information (PII)",
+                    "match": "[REDACTED_PII]",
+                    "score": score,
+                    "reason": reason
+                })
                 # Mask PII
                 masked_text = re.sub(pattern, "[REDACTED_PII]", masked_text)
                 if score > max_score:
@@ -88,6 +106,8 @@ class ResponseLeakageDetector:
 
         requires_blocking = max_score >= 85.0
         requires_masking = (max_score >= 40.0 and not requires_blocking)
+        if requires_blocking:
+            masked_text = "[WITHHELD_BY_SECURITY]"
 
         return {
             "leakage_detected": max_score >= 40.0,

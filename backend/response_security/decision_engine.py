@@ -45,7 +45,7 @@ class ResponseSecurityEngine:
             decision = "BLOCK"
             risk_level = "CRITICAL" if max_score >= 90 else "HIGH"
             is_safe = False
-            sanitized_response = "[SECURITY ALERT: The generated response was blocked because it contained sensitive system instructions or confidential credentials.]"
+            sanitized_response = "[SECURITY ALERT: Response withheld by Layer 2 security. The generated response contained potentially sensitive information (system instructions or credential-like data) and was not delivered.]"
             reason = leak_result["reason"] if leak_result["leakage_detected"] else val_result["anomaly"]
 
         elif leak_result["requires_masking"]:

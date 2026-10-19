@@ -498,11 +498,10 @@ body {
 
 .btn-primary:hover:not(:disabled) {
     background: var(--brand-primary-hover);
-    transform: translateY(-1px);
 }
 
 .btn-primary:active:not(:disabled) {
-    transform: translateY(0);
+    opacity: 0.9;
 }
 
 .btn-primary:disabled {

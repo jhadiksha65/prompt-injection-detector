@@ -1,116 +1,481 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Security Dashboard • PromptSentinel</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <title>Security Dashboard • Prompt Security</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/saas.css">
+    <script src="/static/js/theme.js"></script>
+    <style>
+        .dashboard-layout {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem 1rem 3rem;
+        }
+
+        .dashboard-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.75rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .dashboard-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 550px) {
+            .dashboard-stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .kpi-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+        }
+
+        .kpi-card:hover {
+            border-color: #cbd5e1;
+            box-shadow: var(--shadow-card);
+        }
+
+        .kpi-title {
+            font-size: 0.76rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .kpi-value {
+            font-size: 1.85rem;
+            font-weight: 800;
+            color: var(--text-main);
+            line-height: 1.15;
+            font-family: 'Inter', sans-serif;
+            margin: 0.2rem 0;
+        }
+
+        .kpi-desc {
+            font-size: 0.74rem;
+            color: var(--text-subtle);
+        }
+
+        .kpi-blocked .kpi-value { color: #ef4444; }
+        .kpi-critical .kpi-value { color: #dc2626; }
+        .kpi-layer2 .kpi-value { color: #f59e0b; }
+
+        .auth-banner-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 1.75rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-sm);
+            text-align: center;
+        }
+
+        .table-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem 1.5rem;
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        .table-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .incident-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+            text-align: left;
+        }
+
+        .incident-table th {
+            padding: 0.75rem 0.85rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-subtle);
+            background: var(--bg-surface-subtle);
+            white-space: nowrap;
+        }
+
+        .incident-table td {
+            padding: 0.85rem;
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text-main);
+            vertical-align: middle;
+        }
+
+        .incident-table tr:hover td {
+            background: var(--bg-surface-subtle);
+        }
+
+        .tag-badge {
+            display: inline-block;
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+        }
+
+        .tag-allow { background: var(--safe-bg); color: var(--safe-text); border: 1px solid var(--safe-border); }
+        .tag-block { background: var(--threat-bg); color: var(--threat-text); border: 1px solid var(--threat-border); }
+        .tag-mask { background: var(--warning-bg); color: var(--warning-text); border: 1px solid var(--warning-border); }
+        .tag-review { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        [data-theme="dark"] .tag-review { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.4); }
+
+        .source-badge {
+            display: inline-block;
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 0.2rem 0.48rem;
+            border-radius: 4px;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+        }
+        .badge-gw {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+        }
+        .badge-ext {
+            background: #fdf4ff;
+            color: #a21caf;
+            border: 1px solid #f0abfc;
+        }
+        .badge-req {
+            background: #f8fafc;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+        }
+        .badge-app {
+            background: var(--bg-surface-subtle);
+            color: var(--text-muted);
+            border: 1px solid var(--border-subtle);
+        }
+        [data-theme="dark"] .badge-gw {
+            background: rgba(59, 130, 246, 0.18);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+        [data-theme="dark"] .badge-ext {
+            background: rgba(217, 70, 239, 0.18);
+            color: #e879f9;
+            border-color: rgba(217, 70, 239, 0.4);
+        }
+        [data-theme="dark"] .badge-req {
+            background: rgba(148, 163, 184, 0.15);
+            color: #cbd5e1;
+            border-color: rgba(148, 163, 184, 0.3);
+        }
+        [data-theme="dark"] .badge-app {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-subtle);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .filter-select {
+            font-size: 0.76rem;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-surface);
+            color: var(--text-main);
+            outline: none;
+            cursor: pointer;
+        }
+
+        [data-theme="dark"] .filter-select {
+            background: var(--bg-input);
+            color: var(--text-main);
+            border-color: var(--border-subtle);
+        }
+
+        .btn-refresh {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            padding: 0.45rem 0.95rem;
+            border-radius: var(--radius-md);
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-main);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+
+        .btn-refresh:hover {
+            border-color: var(--brand-purple);
+            background: var(--bg-surface-subtle);
+        }
+
+        .btn-refresh.loading svg {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body>
+
     <div class="app-container">
-        <!-- Sidebar Navigation -->
-        <aside class="sidebar">
-            <div class="brand">
-                <span class="logo-shield">🛡️</span>
-                <div class="brand-text">
-                    <h2>PromptSentinel</h2>
-                    <span class="badge">Dual-Layer Security</span>
+        <!-- TOP NAVBAR (Consistent Navigation Across All Views) -->
+        <header class="top-navbar">
+            <div class="nav-left">
+                <a href="/" class="brand-link" aria-label="Prompt Security Home">
+                    <div class="brand-icon-wrap" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    </div>
+                    <div class="brand-name-group">
+                        <span class="brand-title">Prompt Security</span>
+                        <span class="brand-subtitle">Safer Prompts. Smarter AI.</span>
+                    </div>
+                </a>
+
+                <nav class="nav-tabs" aria-label="Main Navigation">
+                    <a href="/#analyzer" class="nav-tab-link" title="AI Prompt Analyzer">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        <span>Analyzer</span>
+                    </a>
+                    <a href="/#history" class="nav-tab-link" title="Session Analysis History">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <span>History</span>
+                    </a>
+                    <a href="/external-demo" class="nav-tab-link" title="Prompt Security Integration Center & Secure AI Playground">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                        <span>Integration Center</span>
+                    </a>
+                    <a href="/dashboard" class="nav-tab-link active" title="Security & Incident Analytics">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="M18 17V9"></path><path d="M13 17V5"></path><path d="M8 17v-3"></path></svg>
+                        <span>Dashboard</span>
+                    </a>
+                </nav>
+            </div>
+
+            <div class="nav-right">
+                <button class="icon-btn" id="themeToggleBtn" aria-label="Toggle Theme" title="Toggle Light/Dark Theme">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="main-wrapper dashboard-layout">
+            <!-- HEADER -->
+            <div class="dashboard-header-row">
+                <div>
+                    <h1 style="font-size: 1.4rem; font-weight: 800; color: var(--text-main); margin: 0;">Security & Incident Analytics Dashboard</h1>
+                    <p style="font-size: 0.84rem; color: var(--text-muted); margin: 0.35rem 0 0;">
+                        Live threat telemetry, dual-layer decision audit trail, and attack vector distribution.
+                    </p>
+                </div>
+                <div style="display: flex; gap: 0.75rem; align-items: center;">
+                    <a href="/sensitive-resource" class="btn-clear" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;" title="Controlled demonstration of threat-triggered lockout & re-authentication">
+                        <span>Protected Vault Demo 🔐</span>
+                    </a>
+                    <button class="btn-refresh" id="btnRefreshDashboard" onclick="fetchDashboardData()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                        <span>Refresh Data</span>
+                    </button>
                 </div>
             </div>
 
-            <nav class="nav-menu">
-                <a href="/" class="nav-item">
-                    <span class="icon">💬</span>
-                    <span>AI Assistant</span>
-                </a>
-                <a href="/dashboard" class="nav-item active">
-                    <span class="icon">📊</span>
-                    <span>Security Dashboard</span>
-                </a>
-                <a href="/sensitive-resource" class="nav-item">
-                    <span class="icon">🔐</span>
-                    <span>Sensitive Resource</span>
-                </a>
-            </nav>
-
-            <div class="sidebar-footer">
-                <div class="system-status">
-                    <span class="dot online"></span>
-                    <span>Database Connected</span>
+            <!-- AUTHENTICATION CHALLENGE CARD (Shown when 401 Unauthorized) -->
+            <div id="authBannerCard" class="auth-banner-card" style="display: none;">
+                <div style="max-width: 440px; margin: 0 auto;">
+                    <div style="width: 42px; height: 42px; border-radius: 50%; background: var(--bg-surface-subtle); display: flex; align-items: center; justify-content: center; margin: 0 auto 0.75rem; font-size: 1.3rem;">
+                        🛡️
+                    </div>
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">Administrator Authentication Required</h3>
+                    <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1.25rem;">
+                        Incident telemetry and security KPI aggregates are protected resources. Authenticate as an administrator to inspect live records.
+                    </p>
+                    <form id="dashboardAuthForm" onsubmit="handleDashboardAuth(event)" style="display: flex; flex-direction: column; gap: 0.75rem; text-align: left;">
+                        <div>
+                            <label for="dashUsername" style="font-size: 0.76rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Username</label>
+                            <input type="text" id="dashUsername" class="ai-textarea" style="min-height: unset; height: 38px; padding: 0.4rem 0.75rem; font-size: 0.85rem;" value="admin" required autocomplete="username">
+                        </div>
+                        <div>
+                            <label for="dashPassword" style="font-size: 0.76rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 0.25rem;">Admin Password</label>
+                            <input type="password" id="dashPassword" class="ai-textarea" style="min-height: unset; height: 38px; padding: 0.4rem 0.75rem; font-size: 0.85rem;" placeholder="Enter configured admin password" required autocomplete="current-password">
+                        </div>
+                        <div id="dashAuthError" style="display: none; font-size: 0.78rem; color: #ef4444;"></div>
+                        <button type="submit" class="btn-action btn-action-primary" style="margin-top: 0.25rem; width: 100%; justify-content: center;">
+                            Unlock Incident Telemetry
+                        </button>
+                    </form>
                 </div>
             </div>
-        </aside>
 
-        <!-- Main Dashboard Content -->
-        <main class="main-content">
-            <header class="top-header">
-                <div class="header-left">
-                    <h1>Security & Incident Analytics Dashboard</h1>
-                    <p class="subtitle">Live Threat Monitoring, Dual-Layer Decision Logs & Attack Intelligence</p>
-                </div>
-                <div class="header-right">
-                    <button class="refresh-btn" onclick="fetchDashboardData()">🔄 Refresh Data</button>
-                </div>
-            </header>
-
-            <div class="dashboard-body">
-                <!-- KPI Cards -->
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-title">Total Requests</div>
-                        <div class="stat-value" id="statTotal">0</div>
-                        <div class="stat-desc">Processed via Security Middleware</div>
+            <!-- KPI STATS CARDS -->
+            <div class="dashboard-stats-grid" id="statsGridContainer">
+                <div class="kpi-card" title="Total evaluated prompt requests logged in the database across all channels.">
+                    <div class="kpi-title">
+                        <span>Total Requests</span>
+                        <span>📊</span>
                     </div>
-                    <div class="stat-card blocked">
-                        <div class="stat-title">Blocked Threats</div>
-                        <div class="stat-value" id="statBlocked">0</div>
-                        <div class="stat-desc">Intercepted before LLM dispatch</div>
-                    </div>
-                    <div class="stat-card critical">
-                        <div class="stat-title">High / Critical Threats</div>
-                        <div class="stat-value" id="statHighCritical">0</div>
-                        <div class="stat-desc">Risk score $\ge 61/100$</div>
-                    </div>
-                    <div class="stat-card layer2">
-                        <div class="stat-title">Layer 2 Actions</div>
-                        <div class="stat-value" id="statLayer2">0</div>
-                        <div class="stat-desc">Responses Masked or Blocked</div>
-                    </div>
+                    <div class="kpi-value" id="statTotal">-</div>
+                    <div class="kpi-desc">Processed via Security Middleware</div>
                 </div>
 
-                <!-- Incidents Log Table -->
-                <div class="table-card">
-                    <div class="table-header">
-                        <h3>Security Incident Logs</h3>
-                        <span class="table-subtitle">Chronological record of evaluated prompts and responses</span>
+                <div class="kpi-card kpi-blocked" title="Total inbound injection attacks blocked at Layer 1 before dispatching to LLM.">
+                    <div class="kpi-title">
+                        <span>Blocked Threats</span>
+                        <span>🛑</span>
                     </div>
+                    <div class="kpi-value" id="statBlocked">-</div>
+                    <div class="kpi-desc">Intercepted before LLM dispatch</div>
+                </div>
 
-                    <div class="table-responsive">
-                        <table class="incident-table">
-                            <thead>
-                                <tr>
-                                    <th>Request ID</th>
-                                    <th>Timestamp</th>
-                                    <th>Prompt Snippet</th>
-                                    <th>L1 Risk</th>
-                                    <th>Attack Vector</th>
-                                    <th>L1 Decision</th>
-                                    <th>L2 Decision</th>
-                                    <th>Final Action</th>
-                                    <th>Alert</th>
-                                </tr>
-                            </thead>
-                            <tbody id="incidentsTableBody">
-                                <tr>
-                                    <td colspan="9" style="text-align: center; color: #94a3b8; padding: 24px;">Loading incidents from database...</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                <div class="kpi-card kpi-critical" title="Requests with combined threat risk score >= 61% (High or Critical).">
+                    <div class="kpi-title">
+                        <span>High / Critical</span>
+                        <span>⚠️</span>
                     </div>
+                    <div class="kpi-value" id="statHighCritical">-</div>
+                    <div class="kpi-desc">Threat risk score &ge; 61%</div>
+                </div>
+
+                <div class="kpi-card kpi-layer2" title="Generated responses sanitized, masked, or blocked by Layer 2 response inspection.">
+                    <div class="kpi-title">
+                        <span>Layer 2 Protections</span>
+                        <span>🛡️</span>
+                    </div>
+                    <div class="kpi-value" id="statLayer2">-</div>
+                    <div class="kpi-desc">Responses masked or blocked</div>
+                </div>
+            </div>
+
+            <!-- INCIDENT LOGS TABLE CARD -->
+            <div class="table-card" id="incidentsCardContainer">
+                <div class="table-header">
+                    <div>
+                        <h3 style="font-size: 0.96rem; font-weight: 700; color: var(--text-main); margin: 0;">Security Incident Logs</h3>
+                        <span style="font-size: 0.76rem; color: var(--text-muted);">Chronological audit trail of analyzed prompts and dual-layer defense verdicts</span>
+                    </div>
+                    <span id="incidentCountBadge" style="font-size: 0.74rem; font-family: 'JetBrains Mono', monospace; color: var(--text-subtle);">0 incidents</span>
+                </div>
+
+                <!-- FILTER CONTROLS BAR -->
+                <div class="table-filter-bar" style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; background: var(--bg-surface-subtle); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <label for="filterSource" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Channel:</label>
+                        <select id="filterSource" class="filter-select" onchange="fetchDashboardData()">
+                            <option value="">All Channels</option>
+                            <option value="gateway">Gateway API (GW-)</option>
+                            <option value="playground">Playground Demo (EXT-)</option>
+                            <option value="analyzer">Internal Analyzer (REQ-)</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <label for="filterL1" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Layer 1:</label>
+                        <select id="filterL1" class="filter-select" onchange="fetchDashboardData()">
+                            <option value="">All</option>
+                            <option value="BLOCK">BLOCK</option>
+                            <option value="ALLOW">ALLOW</option>
+                            <option value="WARNING">WARNING</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <label for="filterL2" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Layer 2:</label>
+                        <select id="filterL2" class="filter-select" onchange="fetchDashboardData()">
+                            <option value="">All</option>
+                            <option value="SAFE">SAFE</option>
+                            <option value="BLOCK">BLOCK</option>
+                            <option value="MASK">MASK</option>
+                            <option value="NOT_EXECUTED">NOT_EXECUTED</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-left: auto;">
+                        <label for="filterLimit" style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Limit:</label>
+                        <select id="filterLimit" class="filter-select" onchange="fetchDashboardData()">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="incident-table">
+                        <thead>
+                            <tr>
+                                <th title="Unique request identifier for audit tracking">Request ID</th>
+                                <th title="Request origin: Gateway API (GW-), Playground Demo (EXT-), or Internal Analyzer (REQ-)">Channel</th>
+                                <th title="Timestamp when prompt was evaluated">Timestamp</th>
+                                <th title="Redacted prompt preview stored for audit">Prompt Snippet</th>
+                                <th title="Fused threat score (40% Rule heuristics + 60% DistilBERT ML)">L1 Risk</th>
+                                <th title="Detected attack category or heuristic rule">Attack Vector</th>
+                                <th title="Layer 1 Inbound Decision: ALLOW or BLOCK before calling AI">Layer 1</th>
+                                <th title="Layer 2 Outbound Decision: SAFE, MASK, or BLOCK">Layer 2</th>
+                                <th title="Final outcome delivered to client">Final Verdict</th>
+                                <th title="Security incident notification status">Alert</th>
+                            </tr>
+                        </thead>
+                        <tbody id="incidentsTableBody">
+                            <tr>
+                                <td colspan="10" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading incidents from database...</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </main>
     </div>
+
+    <!-- TOAST CONTAINER -->
+    <div class="toast-container" id="toastContainer"></div>
 
     <script src="/static/js/dashboard.js"></script>
 </body>

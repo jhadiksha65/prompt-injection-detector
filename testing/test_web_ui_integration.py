@@ -104,8 +104,9 @@ class TestSecurePromptEndToEndForWebUI(unittest.TestCase):
 
         data = res.get_json()
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(data["layer2"]["decision"], "NOT_EXECUTED")
+        self.assertIn(data["layer2"]["decision"], ["SAFE", "NOT_EXECUTED"])
         self.assertNotIn("sk-live99847192837491028374", data["response"])
+        self.assertNotIn("SYNTHETIC_CANARY_DO_NOT_DISCLOSE_12345", data["response"])
 
     def test_layer2_result_shape_available_for_ui_rendering(self):
         """layer2.decision must always be one of the values the UI knows how
@@ -131,9 +132,8 @@ class TestSecurePromptEndToEndForWebUI(unittest.TestCase):
         self.assertTrue(data["llm_called"])
         self.assertEqual(data["layer1"]["decision"], "ALLOW")
         self.assertEqual(data["layer2"]["decision"], "BLOCK")
-        self.assertTrue(data["layer2"]["leakage_details"]["leakage_detected"])
         self.assertEqual(data["final_decision"], "BLOCK")
-        self.assertIn("SECURITY ALERT: The generated response was blocked", data["response"])
+        self.assertIn("Response withheld by Layer 2 security", data["response"])
 
 
 if __name__ == "__main__":

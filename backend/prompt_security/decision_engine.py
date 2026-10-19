@@ -58,6 +58,7 @@ class PromptSecurityEngine:
             "attack_type": fused_result["attack_type"],
             "decision": fused_result["decision"],
             "reason": fused_result["reason"],
+            "matched_indicators": rule_result.get("matched_indicators", []),
             "rule_result": rule_result,
             "ml_result": ml_result
         }

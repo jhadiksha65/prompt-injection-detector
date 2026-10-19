@@ -21,7 +21,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let attachedFile = null;
     let lastAnalysisData = null;
     let lastAnalyzedPrompt = '';
-    let adminAuthToken = null; // Session-only basic auth token in memory
+    let lastSubmittedRequest = null; // Preserves prompt, file, and demo toggle for Retry
+    let activeRequestId = 0; // Monotonic request counter to prevent stale race conditions
+    let activeAbortController = null; // Controller to abort superseded in-flight requests
+    let adminAuthToken = null; // Session basic auth token
+    try {
+        adminAuthToken = sessionStorage.getItem('prompt_security_admin_token') || null;
+    } catch (e) {
+        adminAuthToken = null;
+    }
 
     // Saved session analyses
     let sessionAnalyses = [];
@@ -121,6 +129,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const threatEvidenceBox = document.getElementById('threatEvidenceBox');
     const threatEvidenceList = document.getElementById('threatEvidenceList');
 
+    // Simulation Indicator Elements
+    const simulationBanner = document.getElementById('simulationBanner');
+    const simulationBadge = document.getElementById('simulationBadge');
+    const simulationStatus = document.getElementById('simulationStatus');
+    const simulationNote = document.getElementById('simulationNote');
+
     // Dual-Layer Pipeline Elements
     const demoLayer2Toggle = document.getElementById('demoLayer2Toggle');
     const dualPipelineContainer = document.getElementById('dualPipelineContainer');
@@ -203,50 +217,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const errorStateTitle = document.getElementById('errorStateTitle');
     const errorStateDesc = document.getElementById('errorStateDesc');
 
-    // Theme Toggle
-    const themeToggleBtn = document.getElementById('themeToggleBtn');
-
-    // --- Theme Management ---
-    function initTheme() {
-        const savedTheme = localStorage.getItem('prompt_security_theme') || 'light';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-        updateThemeIcon(savedTheme);
-    }
-
-    function toggleTheme() {
-        const current = document.documentElement.getAttribute('data-theme') || 'light';
-        const next = current === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem('prompt_security_theme', next);
-        updateThemeIcon(next);
-        showToast(next === 'dark' ? 'Dark mode enabled' : 'Light mode enabled');
-    }
-
-    function updateThemeIcon(theme) {
-        if (!themeToggleBtn) return;
-        if (theme === 'dark') {
-            themeToggleBtn.innerHTML = `
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="5"></circle>
-                    <line x1="12" y1="1" x2="12" y2="3"></line>
-                    <line x1="12" y1="21" x2="12" y2="23"></line>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-                    <line x1="1" y1="12" x2="3" y2="12"></line>
-                    <line x1="21" y1="21" x2="23" y2="12"></line>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-                </svg>`;
-        } else {
-            themeToggleBtn.innerHTML = `
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                </svg>`;
-        }
-    }
-
-    if (themeToggleBtn) themeToggleBtn.addEventListener('click', toggleTheme);
-    initTheme();
+    // --- Theme Synchronization ---
+    // theme.js centrally controls applying the theme and toggling #themeToggleBtn.
+    // Listen for theme changes to display feedback toast without duplicate event handlers.
+    window.addEventListener('themechanged', (e) => {
+        const t = e.detail && e.detail.theme ? e.detail.theme : 'light';
+        showToast(t === 'dark' ? 'Dark mode enabled' : 'Light mode enabled');
+    });
 
     // --- Toast Notifications ---
     function showToast(message) {
@@ -281,11 +258,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         navLinks.forEach(l => {
-            const target = l.getAttribute('data-target') || l.getAttribute('href')?.replace('#', '');
-            if (target === hash) {
-                l.classList.add('active');
-            } else {
-                l.classList.remove('active');
+            const target = l.getAttribute('data-target');
+            if (target) {
+                if (target === hash) {
+                    l.classList.add('active');
+                } else {
+                    l.classList.remove('active');
+                }
             }
         });
 
@@ -412,6 +391,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- Clear Results UI & Stale Data Helper ---
+    function clearResultsUI() {
+        lastAnalysisData = null;
+        if (resultContainer) resultContainer.style.display = 'none';
+        if (resultHeading) resultHeading.textContent = '';
+        if (resultDesc) resultDesc.textContent = '';
+        if (resultScopeBadge) resultScopeBadge.textContent = '';
+        const summaryWhatHappened = document.getElementById('summaryWhatHappened');
+        const summaryWhy = document.getElementById('summaryWhy');
+        const summaryWhatNext = document.getElementById('summaryWhatNext');
+        if (summaryWhatHappened) summaryWhatHappened.textContent = '';
+        if (summaryWhy) summaryWhy.textContent = '';
+        if (summaryWhatNext) summaryWhatNext.textContent = '';
+        if (aiResponseText) aiResponseText.textContent = '';
+        if (analysisScopeBox) analysisScopeBox.style.display = 'none';
+        if (threatEvidenceBox) threatEvidenceBox.style.display = 'none';
+        if (flaggedSection) flaggedSection.style.display = 'none';
+        if (simulationBanner) simulationBanner.style.display = 'none';
+        if (btnSafer) btnSafer.style.display = 'none';
+        if (btnViewProtectedDetails) btnViewProtectedDetails.style.display = 'none';
+        hideBlockDialog();
+    }
+
     // --- Form Submission & Real Backend Analysis ---
     if (analyzeForm) {
         analyzeForm.addEventListener('submit', (e) => {
@@ -421,15 +423,49 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (retryBtn) {
-        retryBtn.addEventListener('click', () => {
-            analyzePrompt();
+        retryBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (retryBtn.disabled) return;
+
+            const reqToRetry = lastSubmittedRequest || {
+                prompt: promptInput ? promptInput.value.trim() : '',
+                file: attachedFile,
+                isDemoLeak: !!(demoLayer2Toggle && demoLayer2Toggle.checked)
+            };
+
+            retryBtn.disabled = true;
+            retryBtn.innerHTML = `
+                <div class="spinner-ring" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></div>
+                <span>Retrying...</span>
+            `;
+
+            try {
+                await analyzePrompt(reqToRetry);
+            } finally {
+                if (retryBtn) {
+                    retryBtn.disabled = false;
+                    retryBtn.innerHTML = 'Retry';
+                }
+            }
         });
     }
 
-    async function analyzePrompt() {
-        const prompt = promptInput ? promptInput.value.trim() : '';
+    async function analyzePrompt(requestOptions = null) {
+        let prompt = '';
+        let file = null;
+        let isDemoLeak = false;
 
-        if (!prompt && !attachedFile) {
+        if (requestOptions) {
+            prompt = requestOptions.prompt !== undefined ? requestOptions.prompt : (promptInput ? promptInput.value.trim() : '');
+            file = requestOptions.file !== undefined ? requestOptions.file : attachedFile;
+            isDemoLeak = requestOptions.isDemoLeak !== undefined ? requestOptions.isDemoLeak : !!(demoLayer2Toggle && demoLayer2Toggle.checked);
+        } else {
+            prompt = promptInput ? promptInput.value.trim() : '';
+            file = attachedFile;
+            isDemoLeak = !!(demoLayer2Toggle && demoLayer2Toggle.checked);
+        }
+
+        if (!prompt && !file) {
             showToast('Please enter a prompt or attach a document');
             if (promptInput) promptInput.focus();
             return;
@@ -440,14 +476,35 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Save submitted request parameters for retry
+        lastSubmittedRequest = { prompt, file, isDemoLeak };
+
+        // Synchronize UI form elements if invoked with explicit options
+        if (promptInput && promptInput.value !== prompt) {
+            promptInput.value = prompt;
+        }
+        if (demoLayer2Toggle && demoLayer2Toggle.checked !== isDemoLeak) {
+            demoLayer2Toggle.checked = isDemoLeak;
+        }
+
+        // Cancel previous pending in-flight request to prevent race conditions
+        if (activeAbortController) {
+            try { activeAbortController.abort(); } catch (e) {}
+        }
+        activeAbortController = new AbortController();
+        const currentReqId = ++activeRequestId;
+
+        // Clear previous results before starting a new analysis
+        clearResultsUI();
+
         // Update Attachment Transparency Indicator
         let analyzedTargetScope = 'Prompt';
-        if (prompt && attachedFile) {
-            analyzedTargetScope = `Prompt + Document content ("${attachedFile.name}")`;
-            lastScopeText = `Security result: Based on prompt + document content ("${attachedFile.name}")`;
-        } else if (attachedFile) {
-            analyzedTargetScope = `Document content ("${attachedFile.name}")`;
-            lastScopeText = `Security result: Based on document content ("${attachedFile.name}")`;
+        if (prompt && file) {
+            analyzedTargetScope = `Prompt + Document content ("${file.name}")`;
+            lastScopeText = `Security result: Based on prompt + document content ("${file.name}")`;
+        } else if (file) {
+            analyzedTargetScope = `Document content ("${file.name}")`;
+            lastScopeText = `Security result: Based on document content ("${file.name}")`;
         } else {
             analyzedTargetScope = 'Prompt';
             lastScopeText = 'Security result: Based on prompt';
@@ -458,11 +515,9 @@ document.addEventListener('DOMContentLoaded', () => {
             inputTransparencyBadge.style.display = 'inline-flex';
         }
 
-        // Loading State
-        if (resultContainer) resultContainer.style.display = 'none';
+        // Loading State: hide errors and results, show loading indicator
         if (errorState) errorState.style.display = 'none';
         if (loadingState) loadingState.style.display = 'flex';
-        hideBlockDialog();
 
         if (analyzeBtn) {
             analyzeBtn.disabled = true;
@@ -474,24 +529,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             let res;
-            const isDemoLeak = !!(demoLayer2Toggle && demoLayer2Toggle.checked);
-            if (attachedFile) {
+            if (file) {
                 // Submit multipart/form-data with prompt and file attachment
                 const formData = new FormData();
                 if (prompt) formData.append('prompt', prompt);
-                formData.append('attachment', attachedFile);
+                formData.append('attachment', file);
                 if (isDemoLeak) formData.append('demo_layer2_leak', 'true');
 
                 res = await fetch('/secure-prompt', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    signal: activeAbortController.signal
                 });
             } else if (isDemoLeak) {
                 // Controlled demo submission for Layer 2 leakage presentation
                 res = await fetch('/secure-prompt', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt, demo_layer2_leak: true })
+                    body: JSON.stringify({ prompt, demo_layer2_leak: true }),
+                    signal: activeAbortController.signal
                 });
             } else {
                 // Standard JSON prompt submission
@@ -499,39 +555,62 @@ document.addEventListener('DOMContentLoaded', () => {
                 res = await fetch('/secure-prompt', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt })
+                    body: JSON.stringify({ prompt }),
+                    signal: activeAbortController.signal
                 });
+            }
+
+            if (currentReqId !== activeRequestId) {
+                // Stale response from an earlier request, discard
+                return;
             }
 
             if (!res.ok) {
                 const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.error || 'Security analysis failed');
+                const msg = errData.error || (res.status === 502 ? 'AI provider request failed or service unavailable' : 'Security analysis failed');
+                throw new Error(msg);
             }
 
             const data = await res.json();
+            if (currentReqId !== activeRequestId) {
+                // Stale response from an earlier request, discard
+                return;
+            }
+
             lastAnalysisData = data;
-            lastAnalyzedPrompt = prompt || (attachedFile ? `[Attachment: ${attachedFile.name}]` : '');
+            lastAnalyzedPrompt = prompt || (file ? `[Attachment: ${file.name}]` : '');
 
             renderResult(data, lastAnalyzedPrompt);
             recordRecentAnalysis(data, lastAnalyzedPrompt);
 
         } catch (err) {
+            if (err.name === 'AbortError' || currentReqId !== activeRequestId) {
+                // Superseded request, do not touch UI
+                return;
+            }
+
             console.error('Analysis error:', err);
+            clearResultsUI(); // Never display stale or default safe card on error
             if (loadingState) loadingState.style.display = 'none';
+            if (resultContainer) resultContainer.style.display = 'none';
+
             if (errorState) {
                 const errMsg = err.message || '';
                 if (errMsg.includes('readable text') || errMsg.includes('Could not extract') || errMsg.includes('Attachment') || errMsg.includes('No content-level')) {
                     if (errorStateTitle) errorStateTitle.textContent = 'Attachment Text Extraction Failed';
                     if (errorStateDesc) errorStateDesc.textContent = errMsg + ' Please upload a file with readable text or paste the text directly.';
+                } else if (errMsg.includes('AI provider') || errMsg.includes('LLM provider') || errMsg.includes('502') || errMsg.includes('provider request failed') || errMsg.includes('Ollama') || errMsg.includes('OpenAI')) {
+                    if (errorStateTitle) errorStateTitle.textContent = 'AI Provider Request Failed';
+                    if (errorStateDesc) errorStateDesc.textContent = errMsg + '. The security backend could not reach the configured AI model. Please verify provider connectivity and retry.';
                 } else {
                     if (errorStateTitle) errorStateTitle.textContent = 'Unable to analyze this prompt right now.';
-                    if (errorStateDesc) errorStateDesc.textContent = 'Please try again in a moment.';
+                    if (errorStateDesc) errorStateDesc.textContent = errMsg || 'Please try again in a moment.';
                 }
                 errorState.style.display = 'flex';
             }
             showToast(err.message || 'Unable to analyze this prompt right now.');
         } finally {
-            if (analyzeBtn) {
+            if (currentReqId === activeRequestId && analyzeBtn) {
                 analyzeBtn.disabled = false;
                 analyzeBtn.innerHTML = `
                     <span>Analyze</span>
@@ -550,6 +629,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resultContainer) resultContainer.style.display = 'block';
 
         const layer1 = data.layer1 || data;
+        const layer2 = data.layer2 || {};
         const overallDecision = data.final_decision || layer1.decision || 'UNKNOWN';
         const riskLevel = layer1.risk_level || 'LOW';
         const riskScore = parseFloat(layer1.risk_score || 0);
@@ -559,6 +639,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Check Layer 1 HIGH/CRITICAL block requirement
         const isLayer1HighCriticalBlock = (
+            !data.simulation_mode &&
             data.llm_called === false &&
             layer1.decision === 'BLOCK' &&
             HIGH_CRITICAL_LEVELS.includes(riskLevel)
@@ -577,13 +658,31 @@ document.addEventListener('DOMContentLoaded', () => {
             hideBlockDialog();
         }
 
+        // Update Simulation Banner
+        if (simulationBanner) {
+            if (data.simulation_mode) {
+                simulationBanner.style.display = 'flex';
+                if (simulationBadge) {
+                    simulationBadge.textContent = 'DEMO MODE';
+                }
+                if (simulationStatus) {
+                    simulationStatus.textContent = data.simulation_status || 'ACTIVE — Testing Response Safety Check';
+                }
+                if (simulationNote) {
+                    simulationNote.textContent = data.simulation_note || '';
+                }
+            } else {
+                simulationBanner.style.display = 'none';
+            }
+        }
+
         // Apply Status Variation
         if (resultCard) {
             resultCard.classList.remove('status-safe', 'status-review', 'status-threat');
         }
 
         let userHeading = 'Prompt Looks Safe';
-        let userDesc = 'Your prompt does not show signs of malicious prompt manipulation.';
+        let userDesc = 'No major security risk was detected in this prompt.';
         let userRec = 'ALLOW';
         let recClass = 'allow';
         let statusClass = 'status-safe';
@@ -594,9 +693,29 @@ document.addEventListener('DOMContentLoaded', () => {
             </svg>`;
         let meterFillClass = 'fill-safe';
 
-        if (overallDecision === 'BLOCK' || riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
-            userHeading = 'Threat Detected';
-            userDesc = "This prompt may contain instructions designed to manipulate or bypass the AI's intended behavior.";
+        const isResponseWithheld = (layer2 && layer2.decision === 'BLOCK') || data.response_withheld === true;
+
+        if (data.simulation_mode && isResponseWithheld) {
+            if (data.simulation_override) {
+                userHeading = 'Response Safety Check Active';
+                userDesc = 'The prompt attempted to bypass safety rules, but continued in demo mode to test response protection. The sensitive response was blocked before delivery.';
+            } else {
+                userHeading = 'Sensitive Output Blocked';
+                userDesc = 'The input prompt was safe, but the sample response contained sensitive data and was blocked by the response safety check.';
+            }
+            userRec = 'BLOCKED (PROTECTED)';
+            recClass = 'block';
+            statusClass = 'status-threat';
+            meterFillClass = 'fill-threat';
+            iconSvg = `
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>`;
+        } else if (overallDecision === 'BLOCK' || riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
+            userHeading = 'Prompt Blocked';
+            userDesc = 'This prompt was blocked before reaching the AI because it attempted to bypass safety rules.';
             userRec = 'BLOCK';
             recClass = 'block';
             statusClass = 'status-threat';
@@ -628,6 +747,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resultTime) resultTime.textContent = 'Analyzed just now';
         if (resultIcon) resultIcon.innerHTML = iconSvg;
 
+        // Populate 3-Question Simple Summary: What happened? Why? What happens next?
+        const summaryWhatHappened = document.getElementById('summaryWhatHappened');
+        const summaryWhy = document.getElementById('summaryWhy');
+        const summaryWhatNext = document.getElementById('summaryWhatNext');
+
+        if (summaryWhatHappened && summaryWhy && summaryWhatNext) {
+            if (isResponseWithheld || (data.simulation_mode && layer2 && layer2.decision === 'BLOCK')) {
+                summaryWhatHappened.textContent = 'The AI response contained sensitive information, so it was blocked.';
+                summaryWhy.textContent = 'The response safety check detected sensitive data (such as system instructions or credential-like values) and stopped it before delivery.';
+                summaryWhatNext.textContent = 'The sensitive content was safely withheld. You can submit another prompt or view the protected security details.';
+            } else if (overallDecision === 'BLOCK' || riskLevel === 'HIGH' || riskLevel === 'CRITICAL') {
+                summaryWhatHappened.textContent = 'This prompt was blocked before reaching the AI.';
+                let cleanWhy = 'The prompt attempted to bypass safety rules or access restricted instructions.';
+                const lowerR = (reason || '').toLowerCase();
+                if (lowerR.includes('override') || lowerR.includes('directive') || lowerR.includes('instruction')) {
+                    cleanWhy = 'An attempt to bypass safety rules or override AI instructions was detected.';
+                } else if (lowerR.includes('leak') || lowerR.includes('system prompt')) {
+                    cleanWhy = 'The prompt attempted to extract protected internal instructions.';
+                } else if (lowerR.includes('jailbreak') || lowerR.includes('persona')) {
+                    cleanWhy = 'The prompt attempted to bypass behavioral safeguards using roleplay or persona manipulation.';
+                }
+                summaryWhy.textContent = cleanWhy;
+                summaryWhatNext.textContent = 'Try rephrasing your prompt with a standard question, or use the "Try Safer Version" suggestion below.';
+            } else if (overallDecision === 'WARNING' || overallDecision === 'MASK' || riskLevel === 'MEDIUM') {
+                summaryWhatHappened.textContent = 'This prompt was flagged for review.';
+                summaryWhy.textContent = 'The prompt contains unusual patterns that may conflict with safety guidelines.';
+                summaryWhatNext.textContent = 'Review your prompt and consider rephrasing any ambiguous instructions.';
+            } else {
+                summaryWhatHappened.textContent = 'No major security risk was detected.';
+                summaryWhy.textContent = 'The prompt and response passed all safety checks with no malicious patterns detected.';
+                summaryWhatNext.textContent = 'Your request was processed normally and the AI response has been safely delivered.';
+            }
+        }
+
         // Update Expandable Analysis Scope / Scanned Input Box
         const scope = data.analysis_scope || {};
         const attribution = data.threat_attribution || {};
@@ -641,7 +794,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const promptEvidence = attribution.prompt_evidence || scope.prompt_evidence;
         const attEvidence = attribution.attachment_evidence || scope.attachment_evidence;
         const threatSource = attribution.source || attribution.threat_source || scope.threat_source || (attThreatDetected ? sourceLabel : 'User Prompt');
-        const attackVector = attribution.attack_vector || scope.attack_vector || layer1.attack_type || (attThreatDetected ? 'Indirect Prompt Injection' : 'Direct Prompt Injection');
+        const attackVector = attribution.attack_vector || scope.attack_vector || layer1.attack_type || (attThreatDetected ? 'Indirect Prompt Injection' : 'Prompt Injection');
+        const promptAttType = attribution.prompt_attack_type || (promptThreatDetected ? layer1.attack_type : null) || attackVector || 'Direct Prompt Injection';
         const filename = scope.filename || attMeta.filename || (attachedFile ? attachedFile.name : '');
         const ftype = (scope.file_type || attMeta.file_type || (filename ? filename.split('.').pop() : '')).toUpperCase();
         const chars = scope.extracted_chars !== undefined ? scope.extracted_chars : (attMeta.extracted_chars || 0);
@@ -654,7 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Scope Item 1: Prompt
             const liPrompt = document.createElement('li');
             if (promptThreatDetected) {
-                liPrompt.innerHTML = `<span class="scope-icon threat">⚠️</span> <span><strong>User prompt:</strong> Malicious instruction detected (<span style="color:var(--threat); font-weight:600;">Direct Prompt Injection</span>)</span>`;
+                liPrompt.innerHTML = `<span class="scope-icon threat">⚠️</span> <span><strong>User prompt:</strong> Malicious instruction detected (<span style="color:var(--threat); font-weight:600;">${escapeHtml(promptAttType)}</span>)</span>`;
             } else if (hasPrompt) {
                 liPrompt.innerHTML = `<span class="scope-icon ok">✓</span> <span><strong>User prompt:</strong> Scanned — no malicious instruction detected</span>`;
             } else {
@@ -712,16 +866,49 @@ document.addEventListener('DOMContentLoaded', () => {
             resultScopeBadge.style.display = 'inline-block';
         }
 
-        if (resRiskScoreVal) resRiskScoreVal.textContent = Math.round(riskScore);
+        const l2RiskScore = layer2 && layer2.risk_score !== undefined ? parseFloat(layer2.risk_score) : 95.0;
+        const l2RiskLevel = layer2 && layer2.risk_level ? layer2.risk_level : 'CRITICAL';
+
+        // When Layer 2 blocks, reflect the intercepted response risk score on top-level metrics
+        // to eliminate contradictory displays (e.g. 0/100 LOW alongside BLOCKED).
+        const effectiveScore = isResponseWithheld ? l2RiskScore : riskScore;
+        const effectiveLevel = isResponseWithheld ? l2RiskLevel : riskLevel;
+
+        const resMetricScoreNote = document.getElementById('resMetricScoreNote');
+        const metricLevelSub = document.getElementById('metricLevelSub');
+
+        if (resRiskScoreVal) resRiskScoreVal.textContent = Math.round(effectiveScore);
         if (riskMeterFill) {
-            riskMeterFill.style.width = Math.min(100, Math.max(5, riskScore)) + '%';
+            riskMeterFill.style.width = Math.min(100, Math.max(5, effectiveScore)) + '%';
             riskMeterFill.className = `risk-bar-fill ${meterFillClass}`;
         }
 
-        if (resRiskLevel) resRiskLevel.textContent = riskLevel;
+        if (resRiskLevel) resRiskLevel.textContent = effectiveLevel;
         if (resDecision) {
             resDecision.textContent = userRec;
             resDecision.className = `badge-rec ${recClass}`;
+        }
+
+        if (resMetricScoreNote) {
+            if (data.simulation_mode) {
+                resMetricScoreNote.textContent = isResponseWithheld
+                    ? `Simulated Response Risk: ${Math.round(effectiveScore)} / 100 (Sample Test Response). Prompt Risk: ${Math.round(riskScore)} / 100 (${riskLevel}).`
+                    : 'Security risk detected in the submitted input.';
+            } else if (isResponseWithheld) {
+                resMetricScoreNote.textContent = `Response Risk: ${Math.round(effectiveScore)} / 100 (Sensitive data withheld). Prompt Risk: ${Math.round(riskScore)} / 100.`;
+            } else {
+                resMetricScoreNote.textContent = 'The score represents the security risk detected in the submitted input.';
+            }
+        }
+
+        if (metricLevelSub) {
+            if (data.simulation_mode && isResponseWithheld) {
+                metricLevelSub.textContent = 'Simulated Severity';
+            } else if (isResponseWithheld) {
+                metricLevelSub.textContent = 'Response Severity';
+            } else {
+                metricLevelSub.textContent = 'Assessed Severity';
+            }
         }
 
         // Threat Evidence Section (Sections 2, 3, 4)
@@ -734,7 +921,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="evidence-header-row">
                                 <span class="evidence-num">1.</span>
                                 <span class="evidence-source-tag">Source: <strong>User Prompt</strong></span>
-                                <span class="evidence-vector-tag">Attack Vector: <strong>Direct Prompt Injection</strong></span>
+                                <span class="evidence-vector-tag">Attack Vector: <strong>${escapeHtml(promptAttType)}</strong></span>
                             </div>
                             <div class="evidence-detected-label">Detected instruction:</div>
                             <div class="evidence-quote">"${escapeHtml(promptEvidence || promptText)}"</div>
@@ -774,7 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="evidence-card">
                             <div class="evidence-header-row">
                                 <span class="evidence-source-tag">Source: <strong>User Prompt</strong></span>
-                                <span class="evidence-vector-tag">Attack Vector: <strong>Direct Prompt Injection</strong></span>
+                                <span class="evidence-vector-tag">Attack Vector: <strong>${escapeHtml(promptAttType || attackVector)}</strong></span>
                             </div>
                             <div class="evidence-detected-label">Detected instruction:</div>
                             <div class="evidence-quote">"${escapeHtml(quoteText)}"</div>
@@ -862,20 +1049,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const meta = data.llm_metadata || {};
         const finalDecision = data.final_decision || 'ALLOW';
         const finalResponse = data.response || '';
+        const isResponseWithheld = (layer2 && layer2.decision === 'BLOCK') || data.response_withheld === true;
+        const isL2Blocked = isResponseWithheld;
 
         // 1. Ribbon Status Pills
         if (stepPillLayer1Status) {
             const l1Decision = layer1.decision || 'UNKNOWN';
-            stepPillLayer1Status.textContent = l1Decision;
-            stepPillLayer1Status.className = `step-pill-status ${l1Decision === 'ALLOW' ? 'status-allow' : 'status-block'}`;
+            if (data.simulation_mode && data.simulation_override) {
+                stepPillLayer1Status.textContent = 'BLOCK (OVERRIDDEN)';
+                stepPillLayer1Status.className = 'step-pill-status status-block';
+            } else {
+                stepPillLayer1Status.textContent = l1Decision;
+                stepPillLayer1Status.className = `step-pill-status ${l1Decision === 'ALLOW' ? 'status-allow' : 'status-block'}`;
+            }
         }
 
         if (stepPillLlmStatus) {
-            if (llmCalled) {
+            if (data.simulation_mode) {
+                stepPillLlmStatus.textContent = 'SAMPLE TEST RESPONSE';
+                stepPillLlmStatus.className = 'step-pill-status status-review';
+            } else if (llmCalled) {
                 stepPillLlmStatus.textContent = 'GENERATED';
                 stepPillLlmStatus.className = 'step-pill-status status-safe';
             } else {
-                stepPillLlmStatus.textContent = 'BYPASSED';
+                stepPillLlmStatus.textContent = 'NOT CALLED';
                 stepPillLlmStatus.className = 'step-pill-status status-bypassed';
             }
         }
@@ -883,13 +1080,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stepPillLayer2Status) {
             const l2Decision = layer2.decision || (llmCalled ? 'UNKNOWN' : 'NOT_EXECUTED');
             if (!llmCalled || l2Decision === 'NOT_EXECUTED' || layer2.status === 'BYPASSED_DUE_TO_BLOCK') {
-                stepPillLayer2Status.textContent = 'NOT EXECUTED';
+                stepPillLayer2Status.textContent = 'NOT RUN';
                 stepPillLayer2Status.className = 'step-pill-status status-not-executed';
             } else if (l2Decision === 'SAFE') {
                 stepPillLayer2Status.textContent = 'SAFE';
                 stepPillLayer2Status.className = 'step-pill-status status-safe';
             } else if (l2Decision === 'BLOCK') {
-                stepPillLayer2Status.textContent = 'BLOCKED';
+                stepPillLayer2Status.textContent = 'RESPONSE BLOCKED';
                 stepPillLayer2Status.className = 'step-pill-status status-block';
             } else {
                 stepPillLayer2Status.textContent = l2Decision;
@@ -898,7 +1095,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (stepPillFinalStatus) {
-            if (finalDecision === 'BLOCK') {
+            if (data.simulation_mode || isResponseWithheld) {
+                stepPillFinalStatus.textContent = 'RESPONSE WITHHELD';
+                stepPillFinalStatus.className = 'step-pill-status status-block';
+            } else if (finalDecision === 'BLOCK') {
                 stepPillFinalStatus.textContent = 'BLOCKED';
                 stepPillFinalStatus.className = 'step-pill-status status-block';
             } else if (finalDecision === 'MASK') {
@@ -912,10 +1112,78 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 2. AI Response Section
         if (aiResponseCard) {
-            if (llmCalled) {
+            if (isL2Blocked) {
+                if (aiResponseSubtitle) aiResponseSubtitle.textContent = 'Response withheld by response safety check';
+                if (aiLlmCalledBadge) {
+                    if (data.simulation_mode || data.is_synthetic) {
+                        aiLlmCalledBadge.textContent = 'Sample Test Response; no real AI was called';
+                        aiLlmCalledBadge.className = 'meta-badge bypassed';
+                    } else {
+                        aiLlmCalledBadge.textContent = 'AI Called: YES';
+                        aiLlmCalledBadge.className = 'meta-badge';
+                    }
+                }
+                if (aiLlmModelBadge) {
+                    aiLlmModelBadge.textContent = 'Original response delivered: NO';
+                }
+                if (aiResponseText) {
+                    aiResponseText.className = 'ai-response-content response-withheld-container';
+                    let categories = (data.detection_categories && data.detection_categories.length > 0)
+                        ? data.detection_categories
+                        : (layer2.leakage_details && layer2.leakage_details.findings && layer2.leakage_details.findings.length > 0
+                            ? [...new Set(layer2.leakage_details.findings.map(f => f.category || f.type))]
+                            : ['Sensitive information detected']);
+                    
+                    // Plain English category mapping
+                    categories = categories.map(c => {
+                        if (c.includes('Canary') || c.includes('Credential') || c.includes('Secret')) return 'Sensitive information detected';
+                        if (c.includes('System Prompt') || c.includes('System Instructions')) return 'System Instructions';
+                        return c;
+                    });
+                    const categoriesHtml = categories.map(c => `<span class="withheld-category-pill">${escapeHtml(c)}</span>`).join(' ');
+                    const riskScoreDisplay = Math.round(layer2.risk_score !== undefined ? layer2.risk_score : 95);
+                    const executionPath = (data.simulation_mode || data.is_synthetic)
+                        ? 'Sample Test Response; no real AI was called'
+                        : (meta.provider ? `${escapeHtml(meta.provider)} (${escapeHtml(meta.model || 'model')})` : 'Connected Model');
+
+                    aiResponseText.innerHTML = `
+                        <div class="response-withheld-card">
+                            <div class="withheld-card-header">
+                                <span class="withheld-shield-icon">🛡️</span>
+                                <div class="withheld-title-wrap">
+                                    <h5 class="withheld-title">Response withheld by response safety check.</h5>
+                                    <p class="withheld-desc">
+                                        ${data.simulation_mode
+                                            ? 'The sample test response contained sensitive information (such as system instructions or credential-like data) and was blocked before delivery.'
+                                            : 'The AI response contained sensitive information, so it was blocked before delivery.'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="withheld-meta-grid">
+                                <div class="withheld-meta-item">
+                                    <span class="withheld-meta-lbl">Original response delivered:</span>
+                                    <span class="withheld-meta-val no-badge">NO</span>
+                                </div>
+                                <div class="withheld-meta-item">
+                                    <span class="withheld-meta-lbl">Execution path:</span>
+                                    <span class="withheld-meta-val">${executionPath}</span>
+                                </div>
+                                <div class="withheld-meta-item">
+                                    <span class="withheld-meta-lbl">Response Risk Score:</span>
+                                    <span class="withheld-meta-val threat-score">${riskScoreDisplay} / 100 (${escapeHtml(layer2.risk_level || 'HIGH')})</span>
+                                </div>
+                                <div class="withheld-meta-item">
+                                    <span class="withheld-meta-lbl">Detected Issues:</span>
+                                    <div class="withheld-categories-wrap">${categoriesHtml}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else if (llmCalled) {
                 if (aiResponseSubtitle) aiResponseSubtitle.textContent = 'Generated by the connected LLM';
                 if (aiLlmCalledBadge) {
-                    aiLlmCalledBadge.textContent = 'LLM Called: YES';
+                    aiLlmCalledBadge.textContent = 'AI Called: YES';
                     aiLlmCalledBadge.className = 'meta-badge';
                 }
                 if (aiLlmModelBadge) {
@@ -925,21 +1193,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (aiResponseText) {
                     aiResponseText.className = 'ai-response-content';
-                    // Show raw response if sanitized or final response
-                    aiResponseText.textContent = data.raw_response || layer2.sanitized_response || finalResponse || '(No response text)';
+                    aiResponseText.textContent = finalResponse || '(No response text)';
                 }
             } else {
-                if (aiResponseSubtitle) aiResponseSubtitle.textContent = 'LLM generation intercepted by Gateway';
+                if (aiResponseSubtitle) aiResponseSubtitle.textContent = 'AI generation skipped by gateway';
                 if (aiLlmCalledBadge) {
-                    aiLlmCalledBadge.textContent = 'LLM Called: NO';
+                    aiLlmCalledBadge.textContent = 'AI Called: NO';
                     aiLlmCalledBadge.className = 'meta-badge bypassed';
                 }
                 if (aiLlmModelBadge) {
-                    aiLlmModelBadge.textContent = 'Interception: Layer 1 Block';
+                    aiLlmModelBadge.textContent = 'Gateway: Prompt Blocked';
                 }
                 if (aiResponseText) {
                     aiResponseText.className = 'ai-response-content blocked-notice';
-                    aiResponseText.textContent = 'The connected LLM was NOT invoked because Layer 1 detected a prompt injection threat and blocked the request before reaching generation.';
+                    aiResponseText.textContent = 'The connected AI was NOT called because the prompt safety check detected an unsafe prompt and blocked the request before execution.';
                 }
             }
         }
@@ -953,7 +1220,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (layer2InspectedVal) layer2InspectedVal.textContent = isL2Executed ? 'YES' : 'NO';
             if (layer2LeakageVal) {
-                layer2LeakageVal.textContent = isL2Executed ? (isLeakDetected ? 'YES ⚠️' : 'NO') : 'N/A';
+                if (data.simulation_mode && isLeakDetected) {
+                    layer2LeakageVal.textContent = 'YES ⚠️ (Response blocked)';
+                } else {
+                    layer2LeakageVal.textContent = isL2Executed ? (isLeakDetected ? 'YES ⚠️ (Response blocked)' : 'NO') : 'N/A';
+                }
                 layer2LeakageVal.style.color = (isL2Executed && isLeakDetected) ? 'var(--threat)' : 'inherit';
             }
             if (layer2RiskScoreVal) {
@@ -968,7 +1239,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (layer2DecisionBadge) {
                 if (!isL2Executed) {
-                    layer2DecisionBadge.textContent = 'NOT EXECUTED';
+                    layer2DecisionBadge.textContent = 'NOT RUN';
                     layer2DecisionBadge.className = 'badge-rec review';
                 } else if (l2Decision === 'SAFE') {
                     layer2DecisionBadge.textContent = 'SAFE';
@@ -989,10 +1260,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isL2Executed && isLeakDetected) {
                     layer2AlertBanner.style.display = 'flex';
                     if (layer2AlertText) {
-                        const leakType = leakDetails.findings && leakDetails.findings.length > 0
-                            ? leakDetails.findings.map(f => f.type || f.category || 'Sensitive Data').join(', ')
-                            : 'Sensitive Information Disclosure';
-                        layer2AlertText.textContent = `Layer 2 Security Intercepted Output: ${leakType}. Protected action taken: ${l2Decision}. Original response was blocked or sanitized.`;
+                        layer2AlertText.textContent = 'Sensitive information detected. The response was blocked and not delivered to the user.';
                     }
                 } else {
                     layer2AlertBanner.style.display = 'none';
@@ -1003,7 +1271,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // 4. Final Result Section
         if (finalResultCard) {
             if (finalResultBadge) {
-                if (finalDecision === 'BLOCK') {
+                if (isL2Blocked) {
+                    finalResultBadge.textContent = 'RESPONSE WITHHELD';
+                    finalResultBadge.className = 'badge-rec block';
+                } else if (finalDecision === 'BLOCK') {
                     finalResultBadge.textContent = 'BLOCKED';
                     finalResultBadge.className = 'badge-rec block';
                 } else if (finalDecision === 'MASK') {
@@ -1016,7 +1287,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (finalResultSubtitle) {
-                if (!llmCalled) {
+                if (isL2Blocked) {
+                    finalResultSubtitle.textContent = 'Original unsafe response was withheld — safe security alert delivered';
+                } else if (!llmCalled) {
                     finalResultSubtitle.textContent = 'Blocked at Layer 1 gateway before AI execution';
                 } else if (layer2.decision === 'BLOCK') {
                     finalResultSubtitle.textContent = 'Generated output blocked by Layer 2 response validation';
@@ -1054,7 +1327,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const promptEvidence = attribution.prompt_evidence || scope.prompt_evidence;
         const attEvidence = attribution.attachment_evidence || scope.attachment_evidence;
         const threatSource = attribution.source || attribution.threat_source || scope.threat_source || (attThreatDetected ? sourceLabel : 'User Prompt');
-        const attackVector = attribution.attack_vector || scope.attack_vector || layer1.attack_type || (attThreatDetected ? 'Indirect Prompt Injection' : 'Direct Prompt Injection');
+        const attackVector = attribution.attack_vector || scope.attack_vector || layer1.attack_type || (attThreatDetected ? 'Indirect Prompt Injection' : 'Prompt Injection');
         const filename = scope.filename || attMeta.filename || (attachedFile ? attachedFile.name : '');
 
         const titleEl = document.getElementById('blockDialogTitle');
@@ -1135,6 +1408,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.showBlockDialog = showBlockDialog;
     window.hideBlockDialog = hideBlockDialog;
+    window.renderResult = renderResult;
+    window.analyzePrompt = analyzePrompt;
 
     // Critical Result-Persistence Requirement:
     // Closing or clicking retry on the block dialog MUST NOT reset the analyzer or lose results!
@@ -1156,13 +1431,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (blockDialogProtectedBtn) {
         blockDialogProtectedBtn.addEventListener('click', () => {
             hideBlockDialog();
-            if (adminAuthToken) {
-                if (btnViewDetails) btnViewDetails.click();
-            } else {
-                if (authErrorMsg) authErrorMsg.style.display = 'none';
-                if (authModal) authModal.style.display = 'flex';
-                if (authUsername) authUsername.focus();
-            }
+            openProtectedDetails();
         });
     }
 
@@ -1241,24 +1510,124 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 4. View Protected Details (Contextual Auth / Audit Trigger)
+    // 4. View Protected Details (Admin Authenticated Audit Report)
+    function openProtectedDetails() {
+        if (!adminAuthToken) {
+            if (authErrorMsg) authErrorMsg.style.display = 'none';
+            if (authModal) authModal.style.display = 'flex';
+            if (authUsername) authUsername.focus();
+            return;
+        }
+
+        if (lastAnalysisData) {
+            const layer1 = lastAnalysisData.layer1 || lastAnalysisData;
+            const layer2 = lastAnalysisData.layer2 || {};
+            const isL2Blocked = layer2.decision === 'BLOCK' || lastAnalysisData.response_withheld === true;
+            const reqId = lastAnalysisData.request_id || 'REQ-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+            const riskLevel = layer1.risk_level || 'LOW';
+            const riskScore = Math.round(parseFloat(layer1.risk_score || 0));
+
+            const protDetectedIssue = document.getElementById('protDetectedIssue');
+            const protWhyMatters = document.getElementById('protWhyMatters');
+            const protActionTaken = document.getElementById('protActionTaken');
+            const protReqId = document.getElementById('protReqId');
+            const protTimestamp = document.getElementById('protTimestamp');
+            const protSource = document.getElementById('protSource');
+            const protSeverity = document.getElementById('protSeverity');
+            const protTrainingSample = document.getElementById('protTrainingSample');
+
+            if (protReqId) protReqId.textContent = reqId;
+            if (protTimestamp) protTimestamp.textContent = new Date().toLocaleString();
+            if (protSource) {
+                const scope = lastAnalysisData.analysis_scope || {};
+                protSource.textContent = scope.attachment_analyzed ? `Uploaded Document: ${scope.filename || 'Document'}` : 'User Prompt';
+            }
+            if (protSeverity) {
+                protSeverity.textContent = `${riskLevel} Risk (${riskScore} / 100)`;
+                protSeverity.style.color = (riskLevel === 'CRITICAL' || riskLevel === 'HIGH') ? 'var(--threat)' : 'inherit';
+            }
+
+            if (isL2Blocked || lastAnalysisData.simulation_mode) {
+                if (protDetectedIssue) {
+                    protDetectedIssue.textContent = 'Sensitive information detected in generated output (Demo Mode response validation).';
+                }
+                if (protWhyMatters) {
+                    protWhyMatters.textContent = 'Preventing sensitive output leakage protects internal instructions, system prompts, and credentials from accidental disclosure or extraction by malicious prompts.';
+                }
+                if (protActionTaken) {
+                    protActionTaken.textContent = 'Response withheld by response safety check prior to delivery. Original response was blocked and replaced with a safe security notice.';
+                }
+                if (protTrainingSample) {
+                    protTrainingSample.style.display = 'block';
+                }
+            } else if (lastAnalysisData.final_decision === 'BLOCK' || layer1.decision === 'BLOCK') {
+                if (protDetectedIssue) {
+                    protDetectedIssue.textContent = `Attempt to bypass safety rules (${layer1.attack_type || 'Suspicious Prompt'}).`;
+                }
+                if (protWhyMatters) {
+                    protWhyMatters.textContent = 'Prompt injections attempt to manipulate model instructions, which could lead to unauthorized actions, bypass of safety controls, or exposure of system instructions.';
+                }
+                if (protActionTaken) {
+                    protActionTaken.textContent = 'Blocked at Prompt Safety Check before calling the AI model. No tokens were consumed.';
+                }
+                if (protTrainingSample) {
+                    protTrainingSample.style.display = 'none';
+                }
+            } else {
+                if (protDetectedIssue) {
+                    protDetectedIssue.textContent = 'No security issues detected. Prompt and response conform to safety policy.';
+                }
+                if (protWhyMatters) {
+                    protWhyMatters.textContent = 'Standard user request. Normal operational baseline.';
+                }
+                if (protActionTaken) {
+                    protActionTaken.textContent = 'Allowed through both safety layers. Standard model generation delivered safely.';
+                }
+                if (protTrainingSample) {
+                    protTrainingSample.style.display = 'none';
+                }
+            }
+        } else {
+            const protDetectedIssue = document.getElementById('protDetectedIssue');
+            const protWhyMatters = document.getElementById('protWhyMatters');
+            const protActionTaken = document.getElementById('protActionTaken');
+            const protReqId = document.getElementById('protReqId');
+            const protTimestamp = document.getElementById('protTimestamp');
+            const protSource = document.getElementById('protSource');
+            const protSeverity = document.getElementById('protSeverity');
+            const protTrainingSample = document.getElementById('protTrainingSample');
+
+            if (protDetectedIssue) protDetectedIssue.textContent = 'No active analysis available.';
+            if (protWhyMatters) protWhyMatters.textContent = 'Submit a prompt or document to view its administrative security telemetry.';
+            if (protActionTaken) protActionTaken.textContent = 'Awaiting input analysis.';
+            if (protReqId) protReqId.textContent = 'N/A';
+            if (protTimestamp) protTimestamp.textContent = new Date().toLocaleString();
+            if (protSource) protSource.textContent = 'N/A';
+            if (protSeverity) {
+                protSeverity.textContent = 'N/A';
+                protSeverity.style.color = 'inherit';
+            }
+            if (protTrainingSample) protTrainingSample.style.display = 'none';
+        }
+
+        const protectedModal = document.getElementById('protectedModal');
+        if (protectedModal) protectedModal.style.display = 'flex';
+    }
+
     if (btnViewProtectedDetails) {
         btnViewProtectedDetails.addEventListener('click', () => {
-            if (adminAuthToken) {
-                if (btnViewDetails) btnViewDetails.click();
-            } else {
-                if (authErrorMsg) authErrorMsg.style.display = 'none';
-                if (authModal) authModal.style.display = 'flex';
-                if (authUsername) authUsername.focus();
-            }
+            openProtectedDetails();
         });
     }
 
-    // 4. View Full Details Modal
+    // 5. View Full Details Modal (Technical Diagnostics)
     if (btnViewDetails) {
         btnViewDetails.addEventListener('click', () => {
             if (lastAnalysisData) {
                 const layer1 = lastAnalysisData.layer1 || lastAnalysisData;
+                const modalDetailsTitle = document.getElementById('modalDetailsTitle');
+                if (modalDetailsTitle) modalDetailsTitle.textContent = 'Technical Diagnostics & Telemetry';
+
                 document.getElementById('modalPrompt').textContent = lastAnalyzedPrompt;
                 const modalRisk = document.getElementById('modalRiskLevel');
                 modalRisk.textContent = layer1.risk_level || 'LOW';
@@ -1289,14 +1658,40 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const protectedModalClose = document.getElementById('protectedModalClose');
+    const protectedModalDone = document.getElementById('protectedModalDone');
+    const protectedModal = document.getElementById('protectedModal');
+    if (protectedModalClose) protectedModalClose.addEventListener('click', () => { if (protectedModal) protectedModal.style.display = 'none'; });
+    if (protectedModalDone) protectedModalDone.addEventListener('click', () => { if (protectedModal) protectedModal.style.display = 'none'; });
+
     // --- Lock Admin Session Action ---
+    async function lockAdminSession() {
+        adminAuthToken = null;
+        try { sessionStorage.removeItem('prompt_security_admin_token'); } catch (e) {}
+        try {
+            await fetch('/api/lock', { method: 'POST' });
+        } catch (err) {}
+        if (detailsModal) detailsModal.style.display = 'none';
+        if (protectedModal) protectedModal.style.display = 'none';
+        if (btnLockAdminSession) btnLockAdminSession.style.display = 'none';
+        const authNotice = document.getElementById('modalAuthStatus');
+        if (authNotice) {
+            authNotice.textContent = 'Standard User Session';
+            authNotice.style.color = 'var(--text-subtle)';
+        }
+        showToast('Admin session locked. Protected details now require authentication.');
+        loadHistory();
+    }
+
     if (btnLockAdminSession) {
         btnLockAdminSession.addEventListener('click', async () => {
             adminAuthToken = null;
+            try { sessionStorage.removeItem('prompt_security_admin_token'); } catch (e) {}
             try {
                 await fetch('/api/lock', { method: 'POST' });
             } catch (err) {}
             if (detailsModal) detailsModal.style.display = 'none';
+            if (protectedModal) protectedModal.style.display = 'none';
             btnLockAdminSession.style.display = 'none';
             const authNotice = document.getElementById('modalAuthStatus');
             if (authNotice) {
@@ -1305,6 +1700,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             showToast('Admin session locked. Protected details now require authentication.');
             loadHistory();
+        });
+    }
+
+    const btnLockAdminSessionProtected = document.getElementById('btnLockAdminSessionProtected');
+    if (btnLockAdminSessionProtected) {
+        btnLockAdminSessionProtected.addEventListener('click', async () => {
+            await lockAdminSession();
         });
     }
 
@@ -1339,11 +1741,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
                 if (res.ok && data.success) {
                     adminAuthToken = btoa(username + ':' + password);
+                    try { sessionStorage.setItem('prompt_security_admin_token', adminAuthToken); } catch (e) {}
                     if (authModal) authModal.style.display = 'none';
                     authPassword.value = '';
                     showToast('Authorized: Admin security telemetry unlocked');
                     loadHistory(); // Reload history with full incidents
-                    if (btnViewDetails) btnViewDetails.click();
+                    openProtectedDetails();
                 } else {
                     if (authErrorMsg) {
                         authErrorMsg.textContent = data.error || 'Authentication failed: Invalid credentials provided.';

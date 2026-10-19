@@ -63,6 +63,22 @@ class TestBlockDialogMarkupIsHonest(unittest.TestCase):
         # by JS from backend fields only (risk level / attack type / reason).
         self.assertNotIn("analyzedPromptText", self.dialog_markup)
 
+    def test_block_dialog_responsive_scrolling_structure(self):
+        self.assertIn("block-dialog-header", self.dialog_markup)
+        self.assertIn("block-dialog-scrollable-body", self.dialog_markup)
+        self.assertIn("block-dialog-actions", self.dialog_markup)
+        # Action buttons must be present in actions footer
+        self.assertIn("blockDialogRetryBtn", self.dialog_markup)
+        self.assertIn("blockDialogProtectedBtn", self.dialog_markup)
+        self.assertIn("blockDialogCloseBtn", self.dialog_markup)
+
+    def test_block_dialog_css_viewport_constraints(self):
+        css_path = os.path.join(ROOT_DIR, "frontend", "static", "css", "saas.css")
+        with open(css_path, "r", encoding="utf-8") as f:
+            css = f.read()
+        self.assertIn("max-height: min(88vh, 660px);", css)
+        self.assertIn("overflow-y: auto;", css)
+
 
 class TestBlockDialogFrontendLogic(unittest.TestCase):
     """Static checks on the shipped JS: dialog is driven only by backend

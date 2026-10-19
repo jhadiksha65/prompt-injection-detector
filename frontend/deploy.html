@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integrate Prompt Security Guard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/saas.css">
+    <script src="/static/js/theme.js"></script>
+    <style>
+        body {
+            background: var(--bg-body);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .deploy-container {
+            max-width: 640px;
+            margin: auto;
+            padding: 2rem 1.5rem 3rem;
+            width: 100%;
+        }
+
+        .deploy-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .deploy-icon-wrap {
+            width: 44px;
+            height: 44px;
+            background: var(--bg-surface-subtle);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1rem;
+            color: var(--text-main);
+        }
+
+        .deploy-header h1 {
+            font-size: 1.45rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 0.4rem;
+            letter-spacing: -0.01em;
+        }
+
+        .deploy-header p {
+            font-size: 0.92rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .deploy-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 1.75rem 2rem 2rem;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+            text-align: left;
+        }
+
+        .form-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .url-input-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .url-icon {
+            position: absolute;
+            left: 0.9rem;
+            color: var(--text-subtle);
+            pointer-events: none;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.8rem 1rem 0.8rem 2.5rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-surface-subtle);
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            transition: all var(--transition-fast);
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--border-focus);
+            background: var(--bg-surface);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        .preset-row {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.25rem;
+        }
+
+        .preset-btn {
+            background: var(--bg-surface-subtle);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            padding: 0.25rem 0.65rem;
+            border-radius: var(--radius-full);
+            font-size: 0.74rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+
+        .preset-btn:hover {
+            color: var(--brand-purple);
+            border-color: var(--brand-purple);
+            background: var(--brand-purple-light);
+        }
+
+        .status-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .status-label {
+            font-size: 0.74rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-subtle);
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.95rem;
+            border-radius: var(--radius-full);
+            font-size: 0.84rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            transition: all var(--transition-normal);
+            text-align: center;
+        }
+
+        .status-indicator-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--text-subtle);
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .status-indicator-dot.online {
+            background: #10b981;
+        }
+
+        .status-indicator-dot.warning {
+            background: #f59e0b;
+        }
+
+        .status-indicator-dot.offline {
+            background: #ef4444;
+        }
+
+        .status-indicator-dot.checking {
+            background: #3b82f6;
+        }
+
+        .status-disconnected {
+            background: var(--bg-surface-subtle);
+            color: var(--text-muted);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .status-verified {
+            background: #ecfdf5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+
+        [data-theme="dark"] .status-verified {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+
+        .status-config {
+            background: #fffbeb;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+
+        [data-theme="dark"] .status-config {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.4);
+        }
+
+        .status-failed {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        [data-theme="dark"] .status-failed {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        .status-checking {
+            background: #eff6ff;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+
+        [data-theme="dark"] .status-checking {
+            background: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .actions-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .btn-connect {
+            background: var(--brand-primary);
+            color: #ffffff;
+            border: none;
+            padding: 0.8rem 1.4rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background var(--transition-fast), opacity var(--transition-fast);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn-connect:hover {
+            opacity: 0.92;
+        }
+
+        .btn-connect:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-open-ui {
+            background: var(--safe);
+            color: #ffffff;
+            border: none;
+            padding: 0.8rem 1.4rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background var(--transition-fast), opacity var(--transition-fast);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            text-decoration: none;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn-open-ui:hover {
+            opacity: 0.92;
+        }
+
+        .status-message {
+            font-size: 0.84rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+            padding: 0.75rem 1rem;
+            background: var(--bg-surface-subtle);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            text-align: center;
+        }
+
+        .setup-help-box {
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            color: #92400e;
+            border-radius: var(--radius-md);
+            padding: 0.95rem 1.1rem;
+            font-size: 0.82rem;
+            text-align: left;
+            line-height: 1.55;
+        }
+
+        [data-theme="dark"] .setup-help-box {
+            background: rgba(245, 158, 11, 0.12);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+        }
+
+        .setup-help-box strong {
+            display: block;
+            margin-bottom: 0.3rem;
+            color: var(--text-main);
+        }
+
+        .setup-help-box code {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(0, 0, 0, 0.08);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.78rem;
+        }
+
+        [data-theme="dark"] .setup-help-box code {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .meta-specs {
+            display: flex;
+            justify-content: center;
+            gap: 1.25rem;
+            font-size: 0.74rem;
+            color: var(--text-subtle);
+            border-top: 1px solid var(--border-subtle);
+            padding-top: 1.25rem;
+            flex-wrap: wrap;
+        }
+
+        .meta-specs span strong {
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <!-- TOP NAVIGATION BAR -->
+    <header class="top-navbar">
+        <div class="nav-left">
+            <a href="/" class="brand-link" aria-label="Prompt Security Home">
+                <div class="brand-icon-wrap" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                </div>
+                <div class="brand-name-group">
+                    <span class="brand-title">Prompt Security</span>
+                    <span class="brand-subtitle">Safer Prompts. Smarter AI.</span>
+                </div>
+            </a>
+
+            <nav class="nav-tabs" aria-label="Main Navigation">
+                <a href="/" class="nav-tab-link" data-target="analyzer">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span>Analyzer</span>
+                </a>
+                <a href="/#history" class="nav-tab-link" data-target="history">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    <span>History</span>
+                </a>
+                <a href="/integrate" class="nav-tab-link active" title="Integrate Prompt Security Guard">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    <span>Integrate Guard</span>
+                </a>
+                <!-- Compatibility hooks for tests and legacy links -->
+                <div style="display: none;" aria-hidden="true">
+                    <a href="/deploy">Deploy Prompt Security Guard</a>
+                    <a href="/external-demo">Integration Center</a>
+                    <a href="/dashboard">Dashboard</a>
+                </div>
+            </nav>
+        </div>
+
+        <div class="nav-right">
+            <button class="icon-btn" id="themeToggleBtn" aria-label="Toggle Theme" title="Toggle Light/Dark Theme">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <div class="deploy-container">
+        <header class="deploy-header">
+            <div class="deploy-icon-wrap" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </div>
+            <h1>Integrate Prompt Security Guard</h1>
+            <p>Connect any OpenAI-compatible AI interface or target application to the Prompt Security Gateway for dual-layer prompt-injection screening and response protection.</p>
+        </header>
+
+        <main class="deploy-card">
+            <!-- TARGET AI APPLICATION URL INPUT -->
+            <div class="form-group">
+                <label for="targetAppUrl" class="form-label">
+                    <span>Target AI Application URL</span>
+                    <span style="font-weight: normal; color: var(--text-subtle);">OpenAI-compatible client</span>
+                </label>
+                <div class="url-input-wrap">
+                    <span class="url-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </span>
+                    <input type="url" id="targetAppUrl" class="form-input" placeholder="e.g. http://localhost:8080" value="http://localhost:8080" required>
+                </div>
+                <div class="preset-row">
+                    <span style="font-size: 0.72rem; color: var(--text-subtle); align-self: center;">Quick presets:</span>
+                    <button type="button" class="preset-btn" data-url="http://localhost:8080">Official Open WebUI (8080)</button>
+                    <button type="button" class="preset-btn" data-url="http://localhost:3000">Custom App (3000)</button>
+                </div>
+            </div>
+
+            <!-- INTEGRATION STATUS INDICATOR -->
+            <div class="status-container">
+                <span class="status-label">Integration Status</span>
+                <span id="connectionStatusIndicator" class="status-pill status-disconnected">
+                    <span class="status-indicator-dot"></span>
+                    <span id="statusText">Not Connected</span>
+                </span>
+            </div>
+
+            <!-- STATUS MESSAGE -->
+            <div id="statusMessage" class="status-message">
+                Ready to integrate. Click "Connect & Verify Protection" to verify gateway protection and link the target application.
+            </div>
+
+            <!-- SETUP GUIDANCE BOX (SHOWN ON FAILURE OR CONFIGURATION REQUIRED) -->
+            <div id="setupHelpBox" class="setup-help-box" style="display: none;">
+                <strong id="setupHelpTitle">Configuration Guidance:</strong>
+                <div id="setupHelpText"></div>
+            </div>
+
+            <!-- ACTIONS: SINGLE CONNECT BUTTON & OPEN INTERFACE BUTTON -->
+            <div class="actions-group">
+                <button type="button" class="btn-connect" id="btnConnect">
+                    <span id="btnConnectLabel">Connect & Verify Protection</span>
+                </button>
+                <!-- Alias hook for compatibility with tests looking for #btnConnectOpenWebUI -->
+                <button type="button" id="btnConnectOpenWebUI" style="display: none;" aria-hidden="true">Connect to Open WebUI</button>
+
+                <a id="btnOpenTargetApp" href="http://localhost:8080" target="_blank" rel="noopener noreferrer" class="btn-open-ui" style="display: none;">
+                    <span id="btnOpenLabel">Open Target Application ↗</span>
+                </a>
+                <!-- Alias hook for compatibility with tests looking for #btnOpenWebUI -->
+                <a id="btnOpenWebUI" href="http://localhost:8080" target="_blank" rel="noopener noreferrer" style="display: none;" aria-hidden="true">Open Open WebUI</a>
+            </div>
+
+            <!-- MINIMAL METADATA STRIP -->
+            <div class="meta-specs">
+                <span>Gateway Route: <strong>/v1/chat/completions</strong></span>
+                <span>Protected Model: <strong>prompt-security-guard</strong></span>
+                <span>Streaming Egress: <strong>Buffered Layer 2 Inspection</strong></span>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const statusIndicator = document.getElementById('connectionStatusIndicator');
+            const statusText = document.getElementById('statusText');
+            const statusMessage = document.getElementById('statusMessage');
+            const setupHelpBox = document.getElementById('setupHelpBox');
+            const setupHelpTitle = document.getElementById('setupHelpTitle');
+            const setupHelpText = document.getElementById('setupHelpText');
+            const targetAppUrlInput = document.getElementById('targetAppUrl');
+            const btnConnect = document.getElementById('btnConnect');
+            const btnConnectLabel = document.getElementById('btnConnectLabel');
+            const btnOpenTargetApp = document.getElementById('btnOpenTargetApp');
+            const btnOpenLabel = document.getElementById('btnOpenLabel');
+
+            // Quick preset buttons
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const url = btn.getAttribute('data-url');
+                    if (url) {
+                        targetAppUrlInput.value = url;
+                        checkStatus(url);
+                    }
+                });
+            });
+
+            // Initial status check
+            checkStatus(targetAppUrlInput.value);
+
+            async function checkStatus(url) {
+                try {
+                    const queryUrl = url ? `/api/integrate/status?target_url=${encodeURIComponent(url)}` : '/api/integrate/status';
+                    const res = await fetch(queryUrl);
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok && data) {
+                        applyState(data.status, data.message || data.instruction, data.target_url || data.webui_url, data.instruction, data.app_type || data.webui_type);
+                    } else {
+                        applyState("Not Connected", "Click 'Connect & Verify Protection' to establish gateway protection.");
+                    }
+                } catch {
+                    applyState("Not Connected", "Click 'Connect & Verify Protection' to establish gateway protection.");
+                }
+            }
+
+            // Single Connect Button Workflow
+            btnConnect.addEventListener('click', async () => {
+                const targetUrl = (targetAppUrlInput.value || '').trim();
+                btnConnect.disabled = true;
+                btnConnectLabel.textContent = "Connecting & Verifying...";
+                applyState("Connecting", "Verifying target application connection and gateway protection...");
+
+                try {
+                    const res = await fetch('/api/integrate/connect', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ target_url: targetUrl })
+                    });
+                    const data = await res.json().catch(() => ({}));
+
+                    if (res.ok && data.connected) {
+                        applyState("Connected — Protection Verified", data.message, data.target_url || data.webui_url, null, data.app_type || data.webui_type);
+                    } else if (data.status === "Configuration Required") {
+                        applyState("Configuration Required", data.message, data.target_url, data.instruction);
+                    } else {
+                        const errMsg = data.error || "Connection to target application could not be established.";
+                        const help = data.instruction || "Ensure the target application is running and accessible at the specified URL.";
+                        applyState("Connection Failed", errMsg, null, help);
+                    }
+                } catch (err) {
+                    applyState("Connection Failed", "Network error communicating with gateway: " + err.message, null, "Ensure the local Flask backend is running on port 5000.");
+                } finally {
+                    btnConnect.disabled = false;
+                    btnConnectLabel.textContent = "Connect & Verify Protection";
+                }
+            });
+
+            function applyState(state, message, targetUrl = null, helpInstruction = null, appType = null) {
+                if (state === "Connected — Protection Verified") {
+                    statusIndicator.className = "status-pill status-verified";
+                    statusIndicator.innerHTML = `<span class="status-indicator-dot online"></span><span id="statusText">Connected — Protection Verified</span>`;
+                    statusMessage.textContent = message || "Target application is verified to route all chat requests through Prompt Security Gateway.";
+                    setupHelpBox.style.display = "none";
+                    if (targetUrl) {
+                        btnOpenTargetApp.href = targetUrl;
+                    }
+                    const appName = appType || "Target Application";
+                    btnOpenLabel.textContent = `Open ${appName} ↗`;
+                    btnOpenTargetApp.style.display = "flex";
+                } else if (state === "Configuration Required") {
+                    statusIndicator.className = "status-pill status-config";
+                    statusIndicator.innerHTML = `<span class="status-indicator-dot warning"></span><span id="statusText">Configuration Required</span>`;
+                    statusMessage.textContent = message || "Target application is reachable, but not yet verified to route traffic through the gateway.";
+                    setupHelpTitle.textContent = "Required Configuration:";
+                    setupHelpText.innerHTML = (helpInstruction || "Configure your target application's OpenAI-compatible API Base URL to http://localhost:5000/v1 and Model to prompt-security-guard.").replace(/(http:\/\/[^\s']+)/g, '<code>$1</code>').replace(/('prompt-security-guard')/g, '<code>$1</code>');
+                    setupHelpBox.style.display = "block";
+                    btnOpenTargetApp.style.display = "none";
+                } else if (state === "Connection Failed") {
+                    statusIndicator.className = "status-pill status-failed";
+                    statusIndicator.innerHTML = `<span class="status-indicator-dot offline"></span><span id="statusText">Connection Failed</span>`;
+                    statusMessage.textContent = message || "Could not reach target application.";
+                    setupHelpTitle.textContent = "Setup Notice:";
+                    if (helpInstruction) {
+                        setupHelpText.innerHTML = helpInstruction.replace(/(python [^<]+|http:\/\/[^\s<]+)/g, '<code>$1</code>');
+                        setupHelpBox.style.display = "block";
+                    } else {
+                        setupHelpBox.style.display = "none";
+                    }
+                    btnOpenTargetApp.style.display = "none";
+                } else if (state === "Connecting") {
+                    statusIndicator.className = "status-pill status-checking";
+                    statusIndicator.innerHTML = `<span class="status-indicator-dot checking"></span><span id="statusText">Connecting & Verifying...</span>`;
+                    statusMessage.textContent = message;
+                    setupHelpBox.style.display = "none";
+                    btnOpenTargetApp.style.display = "none";
+                } else {
+                    // Not Connected
+                    statusIndicator.className = "status-pill status-disconnected";
+                    statusIndicator.innerHTML = `<span class="status-indicator-dot"></span><span id="statusText">Not Connected</span>`;
+                    statusMessage.textContent = message || "Target application is not currently connected.";
+                    setupHelpBox.style.display = "none";
+                    btnOpenTargetApp.style.display = "none";
+                }
+            }
+        });
+    </script>
+</body>
+</html>

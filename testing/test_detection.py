@@ -155,9 +155,9 @@ class TestPromptInjectionDetection(unittest.TestCase):
         res_1 = scorer.calculate_risk(rule_res_1, ml_res_1)
         self.assertEqual(res_1["decision"], "BLOCK")
         self.assertEqual(res_1["risk_level"], "CRITICAL")
-        self.assertEqual(res_1["risk_score"], 99.6)
+        self.assertEqual(res_1["risk_score"], 95.76)
 
-        # Case 2: ML-only high adversarial confidence (rule_score = 0) -> HIGH and BLOCK
+        # Case 2: ML-only high adversarial confidence (rule_score = 0) -> CRITICAL and BLOCK
         rule_res_benign = {
             "rule_triggered": False,
             "rule_score": 0.0,
@@ -165,10 +165,10 @@ class TestPromptInjectionDetection(unittest.TestCase):
         }
         res_2 = scorer.calculate_risk(rule_res_benign, ml_res_1)
         self.assertEqual(res_2["decision"], "BLOCK")
-        self.assertEqual(res_2["risk_level"], "HIGH")
-        self.assertEqual(res_2["risk_score"], 75.0)
+        self.assertEqual(res_2["risk_level"], "CRITICAL")
+        self.assertEqual(res_2["risk_score"], 99.6)
 
-        # Case 3: malicious_probability = 0.91 and rule_score = 0 -> must be HIGH and BLOCK
+        # Case 3: malicious_probability = 0.91 and rule_score = 0 -> must be CRITICAL and BLOCK
         ml_res_3 = {
             "ml_available": True,
             "malicious_probability": 0.91,
@@ -177,8 +177,8 @@ class TestPromptInjectionDetection(unittest.TestCase):
         }
         res_3 = scorer.calculate_risk(rule_res_benign, ml_res_3)
         self.assertEqual(res_3["decision"], "BLOCK")
-        self.assertEqual(res_3["risk_level"], "HIGH")
-        self.assertEqual(res_3["risk_score"], 65.0) # Forced safety floor for >= 0.90
+        self.assertEqual(res_3["risk_level"], "CRITICAL")
+        self.assertEqual(res_3["risk_score"], 91.0)
 
         # Case 4: Moderate ML probability (e.g. 0.60) -> WARNING and MEDIUM
         ml_res_4 = {

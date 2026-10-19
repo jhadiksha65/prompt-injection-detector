@@ -18,6 +18,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const promptText = message.prompt || "";
 
         getApiBaseUrl().then((apiBaseUrl) => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
+
             fetch(`${apiBaseUrl}/secure-prompt`, {
                 method: "POST",
                 headers: {
@@ -26,9 +29,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 // Only the prompt is ever sent. No demo/debug flags — the
                 // extension must never be able to trigger the Layer 2 demo
                 // mechanism.
-                body: JSON.stringify({ prompt: promptText })
+                body: JSON.stringify({ prompt: promptText }),
+                signal: controller.signal
             })
                 .then((response) => {
+                    clearTimeout(timeoutId);
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
@@ -39,6 +44,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     sendResponse({ success: true, data });
                 })
                 .catch((error) => {
+                    clearTimeout(timeoutId);
                     console.error("[PromptSecurity] Backend connection failed:", error);
                     sendResponse(_backendUnavailableResponse());
                 });
@@ -59,14 +65,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
             const sendToSecurityBackend = (capturedText) => {
                 getApiBaseUrl().then((apiBaseUrl) => {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
                     // Forward captured text through the same real dual-layer
                     // pipeline used everywhere else (/secure-prompt).
                     fetch(`${apiBaseUrl}/secure-prompt`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ prompt: capturedText })
+                        body: JSON.stringify({ prompt: capturedText }),
+                        signal: controller.signal
                     })
                         .then((res) => {
+                            clearTimeout(timeoutId);
                             if (!res.ok) {
                                 throw new Error(`HTTP error! status: ${res.status}`);
                             }
@@ -77,6 +88,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             sendResponse({ success: true, text: capturedText, data });
                         })
                         .catch((err) => {
+                            clearTimeout(timeoutId);
                             sendResponse({
                                 success: false,
                                 text: capturedText,

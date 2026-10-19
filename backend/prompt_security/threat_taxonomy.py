@@ -7,11 +7,30 @@ from enum import Enum
 
 
 class ThreatCategory(str, Enum):
+    # 1. Existing valid training examples / benign prompts
+    BENIGN = "Existing valid training examples / benign prompts"
+    # 2. Direct Prompt Injection
     DIRECT_INJECTION = "Direct Prompt Injection"
-    JAILBREAK = "Jailbreak Payload"
-    PROMPT_LEAKAGE = "Prompt / System Prompt Leakage"
-    GOAL_HIJACKING = "Goal Hijacking"
-    BENIGN = "Benign"
+    # 3. Indirect Prompt Injection
+    INDIRECT_INJECTION = "Indirect Prompt Injection"
+    # 4. Instruction Override
+    INSTRUCTION_OVERRIDE = "Instruction Override"
+    # 5. Jailbreak
+    JAILBREAK = "Jailbreak"
+    # 6. Obfuscation / Encoding
+    OBFUSCATION_ENCODING = "Obfuscation / Encoding"
+    # 7. Embedded / Carrier Injection
+    EMBEDDED_CARRIER = "Embedded / Carrier Injection"
+    # 8. Data Exfiltration / Sensitive Information Extraction
+    DATA_EXFILTRATION = "Data Exfiltration / Sensitive Information Extraction"
+    # 9. Safe Security-Related Hard Negatives
+    SAFE_HARD_NEGATIVE = "Safe Security-Related Hard Negatives"
+    # Fallback when specific category cannot be distinguished
+    UNCLASSIFIED = "Unclassified Suspicious Prompt"
+
+    # Backward compatibility aliases
+    PROMPT_LEAKAGE = "Data Exfiltration / Sensitive Information Extraction"
+    GOAL_HIJACKING = "Instruction Override"
 
 
 class BinaryLabel(str, Enum):

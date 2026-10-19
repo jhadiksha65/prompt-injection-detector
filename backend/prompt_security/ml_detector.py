@@ -127,7 +127,7 @@ class MLPromptDetector:
             "pipeline_mode": self.pipeline_mode,
             "degraded": not self.is_loaded,
             "model_path": self.model_path,
-            "model_sha256": self.model_sha256,
+            "model_sha256": self.model_sha256 if self.is_loaded else None,
             "expected_model_sha256": self.expected_model_sha256,
             "decision_threshold": self.threshold,
             "decision_threshold_source": self.threshold_source,
