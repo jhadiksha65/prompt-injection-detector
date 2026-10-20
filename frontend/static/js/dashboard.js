@@ -8,6 +8,11 @@ let isFetching = false;
 
 function getAdminAuthToken() {
     try {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('auth')) {
+            const authVal = urlParams.get('auth');
+            return authVal.includes(':') ? btoa(authVal) : authVal;
+        }
         return sessionStorage.getItem('prompt_security_admin_token') || null;
     } catch (e) {
         return null;

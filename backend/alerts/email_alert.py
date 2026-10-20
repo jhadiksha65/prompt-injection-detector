@@ -97,15 +97,20 @@ System Status:
             msg.attach(MIMEText(body, "plain"))
 
             # Connect using SSL (port 465) or standard TLS (other ports)
+            print(f"[SMTP Dispatch] Connecting to {smtp_host}:{smtp_port} for {request_id}...")
             if smtp_port == 465:
-                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=3)
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=5)
+                print(f"[SMTP Dispatch] SSL/TLS connection established with {smtp_host}:{smtp_port}")
             else:
-                server = smtplib.SMTP(smtp_host, smtp_port, timeout=3)
+                server = smtplib.SMTP(smtp_host, smtp_port, timeout=5)
                 server.starttls()
+                print(f"[SMTP Dispatch] STARTTLS handshake established with {smtp_host}:{smtp_port}")
                 
             server.login(smtp_user, smtp_pass)
+            print(f"[SMTP Dispatch] Authenticated as {smtp_user}")
             server.sendmail(smtp_user, recipient, msg.as_string())
             server.quit()
+            print(f"[SMTP Dispatch] Security alert email successfully delivered to {recipient} [{request_id}] -> Status: SENT")
             return "SENT"
         except Exception as e:
             print(f"[EmailAlert] Failed to send real email ({e}).")

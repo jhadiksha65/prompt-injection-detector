@@ -1,0 +1,545 @@
+--- PAGE 1 ---
+P1:L1: Dual-Layer Security Architecture for Prompt
+P1:L2: Injection Defense: Neural-Heuristic Fusion,
+P1:L3: Multi-Modal Attachment Parsing, and Outbound
+P1:L4: Leakage Prevention
+P1:L5: Omika Shrestha, Diksha Jha, Usha Anirudhha Jogalekar
+P1:L6: Department of Computer Science & Engineering
+P1:L7: Symbiosis Institute of Technology, Symbiosis International (Deemed University)
+P1:L8: Pune, India
+P1:L9: Usha Anirudhha Jogalekar: Assistant Professor
+P1:L10: Implementation repository: https://github.com/jhadiksha65/prompt-injection-detector
+P1:L11: Abstract—Prompt injection poses a threat to applications that
+P1:L12: mix trusted code with untrusted user input, uploaded files and
+P1:L13: external content. This paper introduces a two-layer security
+P1:L14: architecture that incorporates inbound neural–heuristic screening
+P1:L15: and outbound response sanitization. The inbound layer combines a
+P1:L16: highly optimized DistilBERT classifier, deterministic rules, a nine-
+P1:L17: category threat taxonomy and attachment-specific processing for
+P1:L18: supported attachments, such as OCR for raster images. The
+P1:L19: outbound layer scans completed model answers for possible
+P1:L20: prompt disclosure, credential-like strings, personally identifiable
+P1:L21: information (PII), and structural anomalies before sending them
+P1:L22: out. An OpenAI-compatible gateway that blocks pre-execution, no
+P1:L23: LLM invocations on tested blocked paths, buffers responses for
+P1:L24: inspection prior to server-sent-event delivery. The hybrid detector
+P1:L25: yields 99.03% accuracy, 99.26% precision, 98.80% recall and an
+P1:L26: F1-score of 0.9903 on the 3,000-example generalization test. It has
+P1:L27: a 99.17% accuracy and 98.33% recall on a 600 example challenge
+P1:L28: holdout set, and no false positives out of the 300 benign examples
+P1:L29: in the holdout set. There are 288 tests in 20 modules in the
+P1:L30: implementation’s regression suite. These results show the success
+P1:L31: of the approach of using neural classification, deterministic rules,
+P1:L32: attachment processing, and output inspection on the datasets
+P1:L33: evaluated.
+P1:L34: Index Terms—prompt injection, large language model security,
+P1:L35: DistilBERT, rule-based detection, output filtering, attachment
+P1:L36: parsing, defense in depth
+P1:L37: I. INTRODUCTION
+P1:L38: Large language model (LLM) applications are increasingly
+P1:L39: ingesting user instructions along with retrieved web pages,
+P1:L40: uploaded documents, outputs from tools, and other untrusted
+P1:L41: content. Prompt injection takes advantage of this by embedding
+P1:L42: instructions within the content that the model might consider
+P1:L43: authoritative. Direct attacks are made through the user facing
+P1:L44: prompt, and indirect attacks are made through external content
+P1:L45: like documents or web pages [1]–[4]. Successful attack can
+P1:L46: result in a redirection of a model’s task, affect tool use, or try
+P1:L47: to gain confidential context.
+P1:L48: A single input filter is not enough to solve prompt injection.
+P1:L49: Keyword rules are simple to interpret, easy to implement, but
+P1:L50: can be ineffective at detecting paraphrases and can trigger false
+P1:L51: alarms for non-attack-related conversations. Neural classifiers
+P1:L52: can identify more general language patterns, but are sensitive to
+P1:L53: composition and distribution shift in the data sets. Furthermore,
+P1:L54: the input filtering does not allow to check the output of the
+P1:L55: model itself. Previous research on prompt-injection attacks and
+P1:L56: agent benchmarks encourages considering not only detection
+P1:L57: quality but also application-level enforcement [2] - [8] when
+P1:L58: evaluating an attack. Prompt injection and disclosure of
+P1:L59: sensitive information are also highlighted as risks in the
+P1:L60: OW ASP GenAI guidance [12].
+P1:L61: This paper describes the middleware architecture imple-
+P1:L62: mented and the evaluation of the detection performance,
+P1:L63: attachment-processing behavior, application-level enforcement,
+P1:L64: and response-inspection pipeline of the implemented middle-
+P1:L65: ware architecture based on the project benchmark sets and
+P1:L66: automated integration tests.
+P1:L67: A. Contributions
+P1:L68: The paper makes four contributions:
+P1:L69: • It describes an inbound screening pipeline that combines a
+P1:L70: DistilBERT-based classifier with deterministic rule signals
+P1:L71: and a threat taxonomy.
+P1:L72: • It documents separate processing paths for user prompts
+P1:L73: and supported attachments, including OCR for raster
+P1:L74: images, to help identify the source of suspicious content.
+P1:L75: • It describes outbound response checks for suspected
+P1:L76: prompt disclosure, credential-like strings, PII, and struc-
+P1:L77: tural anomalies.
+P1:L78: • It reports confusion-matrix-derived results for three eval-
+P1:L79: uation sets, summarizes the automated regression suite,
+P1:L80: and reports the measured detection, integration-test, and
+P1:L81: middleware-latency results.
+P1:L82: B. Research Questions
+P1:L83: We examine four questions: (RQ1) how does hybrid detection
+P1:L84: compare with rule-only and neural-only baselines on the
+P1:L85: reported datasets? (RQ2) can the attachment pipeline extract
+--- PAGE 2 ---
+P2:L1: TABLE I
+P2:L2: OPERATIONALTHREATTAXONOMY
+P2:L3: Category Purpose / Example Intended
+P2:L4: action
+P2:L5: Benign prompt Ordinary conversation, educational or
+P2:L6: programming request
+P2:L7: Allow
+P2:L8: Direct injection Explicit instruction to ignore prior instructions Block or re-
+P2:L9: view
+P2:L10: Indirect injection Malicious instructions in external content Block or re-
+P2:L11: view
+P2:L12: Instruction override Attempt to replace the assigned role or task Block or re-
+P2:L13: view
+P2:L14: Jailbreak Adversarial framing intended to bypass
+P2:L15: restrictions
+P2:L16: Block or re-
+P2:L17: view
+P2:L18: Obfuscation / encoding Encoded or obscured instruction payload Block or re-
+P2:L19: view
+P2:L20: Embedded / carrier injec-
+P2:L21: tion
+P2:L22: Suspicious instructions extracted from a
+P2:L23: supported file
+P2:L24: Block or re-
+P2:L25: view
+P2:L26: Sensitive-information ex-
+P2:L27: traction
+P2:L28: Attempt to elicit prompts, credentials, or
+P2:L29: configuration
+P2:L30: Block or re-
+P2:L31: view
+P2:L32: Safe security hard nega-
+P2:L33: tive
+P2:L34: Legitimate discussion of security concepts or
+P2:L35: attacks
+P2:L36: Allow when
+P2:L37: judged
+P2:L38: benign
+P2:L39: and screen text from supported document and image formats?
+P2:L40: (RQ3) do integration tests verify that blocked requests are
+P2:L41: stopped before the downstream model is called? (RQ4) can
+P2:L42: configured outbound checks detect selected synthetic leakage
+P2:L43: cases before response delivery?
+P2:L44: II. THREATMODEL ANDTAXONOMY
+P2:L45: Let’s take an application that allows an adversary to submit
+P2:L46: prompts or file, which are then served through an LLM-powered
+P2:L47: service. The opponent might attempt to alter the application
+P2:L48: instructions, break the application, embed instructions in
+P2:L49: a carrier file or provoke sensitive information. Protected
+P2:L50: assets include application instructions, credentials, personal
+P2:L51: information and computational resources. The system also
+P2:L52: does not guarantee that the detector will be able to detect
+P2:L53: all malicious input and that it will block all model mediated
+P2:L54: disclosure.
+P2:L55: The current taxonomy of the repository has 9 categories:
+P2:L56: benign prompts, direct prompt injection, indirect prompt
+P2:L57: injection, instruction override, jailbreak, obfuscation/encoding,
+P2:L58: embedded/carrier injection, data exfiltration, and extraction of
+P2:L59: sensitive information. These are labels for the operations and
+P2:L60: not for an exhaustive list of all possible attacks. The intended
+P2:L61: handling is summarized in Table I. The category label should
+P2:L62: not be taken as a standalone assurance of how the decision
+P2:L63: will be made as the actual decision may be influenced by rule
+P2:L64: signals, model scores, severity overrides and application policy.
+P2:L65: III. RELATEDWORK
+P2:L66: Perez and Ribeiro catalogued attack techniques targeting
+P2:L67: instruction-following language models [1]. Greshakeet al.and
+P2:L68: Liuet al.examined indirect prompt injection in applications
+P2:L69: that consume external content [2], [3]. InjecAgent and Agent-
+P2:L70: Dojo broadened evaluation toward tool-integrated agents and
+P2:L71: interactive attack-and-defense settings [4], [5]. CAPTURE and
+P2:L72: later reassessments emphasize the importance of context and
+P2:L73: the risk of over-defending by blocking legitimate requests [6],
+P2:L74: [7]. PromptRobust studies robustness under adversarial prompt
+P2:L75: variations [8].
+P2:L76: DistilBERT provides a smaller transformer architecture
+P2:L77: suitable for lower-cost inference relative to a full BERT model,
+P2:L78: while retaining much of its language-understanding perfor-
+P2:L79: mance [9]. Carliniet al.demonstrated that language models
+P2:L80: can emit memorized training data under certain conditions
+P2:L81: [10]; that work motivates caution about model output but does
+P2:L82: not, by itself, establish that this middleware detects operational
+P2:L83: API keys. NIST’s Generative AI Profile and OW ASP’s GenAI
+P2:L84: guidance provide broader risk-management context [11], [12].
+P2:L85: These works motivate the system’s design choices; they do
+P2:L86: not independently validate the implementation or its reported
+P2:L87: performance.
+P2:L88: IV. SYSTEMARCHITECTURE ANDIMPLEMENTATION
+P2:L89: As shown in Fig. IV the principal request and response path
+P2:L90: is followed. Input is filtered prior to passing to the downstream
+P2:L91: LLM, and the output is again checked before it is passed to
+P2:L92: the client. There’s a gateway and a browser extension in the
+P2:L93: repository, but for the purposes of this paper only behaviors
+P2:L94: supported by the implementation and tests described below
+P2:L95: will be evaluated.
+P2:L96: A. Input Normalization and Head–Tail Tokenization
+P2:L97: The implementation of the preprocesser will not only keep
+P2:L98: the starting of a long input but also the ending. As applied, it
+P2:L99: merges a 127-token head, a 127-token tail, plus the two special
+P2:L100: tokens for a maximum length of 256 tokens:
+P2:L101: Tinput = [CLS, t1, . . . , t127, tN−126 , . . . , tN ,SEP].(1)
+P2:L102: This policy may retain the first and final lines of a text, and
+P2:L103: may lose the middle of it. This is truncation, not representation
+P2:L104: of all hidden or distributed instructions.
+P2:L105: B. Inbound Layer 1: Neural–Heuristic Screening
+P2:L106: The Inbound Layer 1 is: Neural–Heuristic Screening. Layer
+P2:L107: 1 fuses rule signals from deterministic rules with an optimised
+P2:L108: DistilBERT model classifier. Let Rrule be the risk score
+P2:L109: obtained from the rule and let Pmal be the estimated malicious
+P2:L110: probability obtained by the classifier. It is indicated by the
+P2:L111: model score RML = 100P mal. The fused score is calculated
+P2:L112: as:
+P2:L113: Rfused = 0.40R rule + 0.60RML.(2)
+P2:L114: There are severity based overrides that complement the fusion
+P2:L115: policy. High severity evidence of attacks can be punishable with
+P2:L116: a risk floor of 85, and safe cases with hard negative evidence can
+P2:L117: be capped at a score of 25. The calibrated decision bands will
+P2:L118: be mapped as: scores ≤30 will be mapped to ALLOW, scores
+P2:L119: between 31 to 60 will be mapped to WARNINGand scores ¿
+P2:L120: 60 will be mapped to BLOCKwith the appropriate severity
+P2:L121: taking precedence. The 0.3800 is a classifier decision threshold
+P2:L122: and is not used as a final risk-score threshold. Fused scores,
+P2:L123: severity overrides, and decision bands combine to give defense
+P2:L124: in depth: the classifier is able to see more broad language
+--- PAGE 3 ---
+P3:L1: Dual layer prompt-security gateway architecture with multimodal attachment extraction, inbound neural–heuristic blocking, gate
+P3:L2: pre-execution, response buffering, outbound sanitization, and audit logging.
+P3:L3: patterns, whereas the deterministic rules give interpretable
+P3:L4: evidence and explicit handling in high severity cases.
+P3:L5: C. Attachment Parsing and Attribution
+P3:L6: There are two methods of attaching: Parsing and Attribution.
+P3:L7: The attachment handler can process PDF, DOCX, TXT, legacy
+P3:L8: DOC and PNG/JPG/JPEG images. The PDF text is extracted
+P3:L9: using a parser and the DOCX text is extracted from paragraphs
+P3:L10: and tables. The images are then processed by PDF to Text with
+P3:L11: OCR and Tesseract and Pillow. LibreOffice is used to convert
+P3:L12: the old-style DOC files into PDF. The quality of extracted files
+P3:L13: depends on the structure of files and content quality.
+P3:L14: suspicious text in a file is identified with user’s request, and
+P3:L15: text and extracted attachment text are considered as different
+P3:L16: inputs to prompt. Records descriptive labels for prompt,
+P3:L17: attachment or combined cases, and applies risk handling
+P3:L18: with regards to attachments. Also, the simplified expression
+P3:L19: Roverall = max(R prompt, Rattachment) doesn’t represent all
+P3:L20: application behavior including attachment specific risk floor
+P3:L21: and propagation of evidence. The implementation should thus
+P3:L22: be seen as part of a decision pipeline, rather than a pipe with
+P3:L23: a single maximum operation. All PDF metadata streams or
+P3:L24: steganographic content, all embedded XML streams in random
+P3:L25: or arbitrary XML payloads, are not explicitly claimed herein
+P3:L26: to be covered by the present parser.
+P3:L27: D. Outbound Layer 2: Response Inspection
+P3:L28: Once an allowed request is sent to a configured LLM provider
+P3:L29: or a test mock, the response is checked before it’s sent back
+P3:L30: to the client. The checked implementation consists of the
+P3:L31: following classes of checks:
+P3:L32: Suspected prompt disclosure: system-prompt or system-
+P3:L33: markup pattern-based checks. In some cases, High Risk
+P3:L34: matches may result in the withholding of the response.
+P3:L35: Credential-like strings: pattern matching for specified API-
+P3:L36: key or bearer token, private-key markers, and database
+P3:L37: connection strings.
+P3:L38: • PII patterns:masking of certain patterns like credit card
+P3:L39: numbers, email addresses, SSN numbers and strings with
+P3:L40: similar patterns per configured rules.
+P3:L41: • Structural controls:response length bounds, heuristic
+P3:L42: for repetitive or low diversity output.
+P3:L43: These are pattern based controls. They may fail to recognize
+P3:L44: novel formats, and they can also mark benign strings; complete
+P3:L45: secret detection and zero leakage are not guaranteed in arbitrary
+P3:L46: deployments by successful synthetic tests.
+P3:L47: E. Gateway and Browser Extension
+P3:L48: The Gateway and Browser Extension are not the same. The
+P3:L49: repository exposes an OpenAI-compatible chat-completions
+P3:L50: route, for integration with compatible clients. For Layer 2, it
+P3:L51: is a requirement to inspect the full response before it can be
+P3:L52: delivered, so an unbuffered token egress is rejected by the
+P3:L53: gateway. The tests reviewed show that a streaming request can
+P3:L54: be buffered, checked, and then sent out as a server-sent event
+P3:L55: (SSE); it would be wrong to take that as a blanket prohibition
+P3:L56: for all requests with stream=true. The security property is,
+P3:L57: that no response token must be emitted before the decision on
+P3:L58: the inspection.
+P3:L59: A Chromium browser extension is also provided to capture
+P3:L60: prompt submission in supported web interfaces and added to the
+--- PAGE 4 ---
+P4:L1: repository. Extension behavior is influenced by page structure,
+P4:L2: event handling, and cannot be generalized to all websites or
+P4:L3: browser applications.
+P4:L4: V. DATASETLINEAGE ANDMODELPROVENANCE
+P4:L5: The project uses a finalized, balanced V3 training corpus
+P4:L6: containing 16,224 examples, together with a 1,500-example
+P4:L7: V3 validation split. The model is evaluated on a separate 3,000-
+P4:L8: example generalization holdout representing the project’s nine-
+P4:L9: category threat taxonomy. The repository also retains earlier
+P4:L10: dataset-development stages and targeted evaluation sets for
+P4:L11: challenge, hard-negative, and short-prompt testing. Table II
+P4:L12: summarizes the documented dataset files and their roles.
+P4:L13: The V3 training and validation splits are balanced between
+P4:L14: benign and malicious examples. The 3,000-example generaliza-
+P4:L15: tion holdout is used to compare the rule-only, DistilBERT-only,
+P4:L16: and hybrid approaches, while the challenge and hard-negative
+P4:L17: sets provide targeted checks under distinct input conditions. The
+P4:L18: model-integrity module records the expected SHA-256 digest
+P4:L19: c15a14cad0bdc9fa909a52c667bff9430e098aebb7c11b375df3
+P4:L20: d50ae1f0ea93. The implementation also records the production
+P4:L21: classifier threshold as 0.3800. These identifiers allow the model
+P4:L22: artifact and its inference policy to be documented alongside
+P4:L23: the evaluation results.
+P4:L24: VI. EXPERIMENTALEVALUATION
+P4:L25: This section compares the rule-only, DistilBERT-only, and
+P4:L26: hybrid methods using the project evaluation confusion matrices.
+P4:L27: We define accuracy as (T P+T N)/N , precision as T P/(T P+
+P4:L28: F P), recall as T P/(T P+F N) , and F1 as the harmonic mean
+P4:L29: of precision and recall. The reported datasets are balanced,
+P4:L30: so accuracy should be read alongside precision, recall, and
+P4:L31: the confusion counts. We do not claim that the datasets are
+P4:L32: representative of all real-world prompts.
+P4:L33: A. RQ1: Component Comparison
+P4:L34: On the 3,000-example generalization benchmark, the hybrid
+P4:L35: method reaches 99.03% accuracy, 99.26% precision, 98.80%
+P4:L36: recall, and F1 of 0.9903. The neural-only baseline reaches
+P4:L37: 98.73% accuracy, 99.26% precision, 98.20% recall, and F1 of
+P4:L38: 0.9873. The rule-only baselines have high precision on this
+P4:L39: benchmark but recall below 9%, illustrating that the selected
+P4:L40: rules alone miss many malicious examples in this dataset.
+P4:L41: On the challenge holdout, the hybrid method records 5 false
+P4:L42: negatives and no false positives. As the holdout contains only
+P4:L43: 300 benign samples, zero observed false positives is a finite-
+P4:L44: sample observation, not evidence of a universal zero false-
+P4:L45: positive rate.
+P4:L46: On the 300-example hard-negative set used for the table, the
+P4:L47: hybrid confusion matrix is TN=137, FP=13, FN=7, TP=143.
+P4:L48: This corresponds to 93.33% accuracy, 91.67% precision,
+P4:L49: 95.33% recall, and F1 of approximately 0.9346. The hard-
+P4:L50: negative results shown here correspond to the curated hard-
+P4:L51: negative evaluation set.
+P4:L52: B. RQ2: Attachment Processing
+P4:L53: The project reports placement tests on the challenge set:
+P4:L54: 50 tail-injection examples with no misses, 25 head-injection
+P4:L55: examples with 5 misses, and 25 long benign documents with no
+P4:L56: false positives. These targeted tests exercise attachment-carried
+P4:L57: instructions at both the beginning and end of long content,
+P4:L58: alongside benign long-document inputs. Dedicated repository
+P4:L59: tests also exercise DOCX extraction and image OCR.
+P4:L60: C. RQ3: Application Gating and Regression Tests
+P4:L61: The reported automated suite contains 288 passing tests
+P4:L62: across 20 listed modules, with no reported failures or skips and
+P4:L63: a reported execution time of 458 seconds. The listed module
+P4:L64: counts sum to 288. Integration tests use assertions to verify
+P4:L65: that a blocked request does not invoke the downstream LLM.
+P4:L66: These integration assertions verify that blocked requests are
+P4:L67: terminated before downstream model invocation in the tested
+P4:L68: block paths.
+P4:L69: D. RQ4: Outbound Response Checks
+P4:L70: The project reports synthetic tests in which credential-like
+P4:L71: strings were intercepted and withheld, selected PII patterns were
+P4:L72: masked, and benign sample responses were allowed. These tests
+P4:L73: demonstrate the configured response-handling behavior for the
+P4:L74: evaluated synthetic cases, including withholding credential-like
+P4:L75: outputs and masking selected PII patterns before delivery.
+P4:L76: E. Latency
+P4:L77: The reported Layer 1 timing totals are 29.3 ms on Apple
+P4:L78: MPS, 22.7 ms on CUDA, and 84.7 ms on x86 CPU. Adding
+P4:L79: the two listed Layer 2 inspection stages gives approximate
+P4:L80: security-middleware totals of 33.4 ms, 26.5 ms, and 89.3 ms,
+P4:L81: respectively. These sums exclude downstream LLM generation,
+P4:L82: network transfer, attachment parsing/OCR, and any queueing
+P4:L83: or deployment overhead. They should therefore be described as
+P4:L84: measured pipeline-stage latency, not end-to-end user response
+P4:L85: latency.
+P4:L86: VII. DISCUSSION
+P4:L87: The benchmark results demonstrate that the neural and
+P4:L88: hybrid methods perform significantly better than the rule-only
+P4:L89: baseline methods on the tested sets in terms of the number
+P4:L90: of malicious examples correctly identified. It also reveals that
+P4:L91: the hybrid detector has no ability to block false positives:
+P4:L92: in the confusion matrix presented, 13 out of 150 instances
+P4:L93: of benign examples were reported as harmful. Such a trade-
+P4:L94: off is important for actual deployments where blocking a
+P4:L95: legitimate request can come with a price. This comparison
+P4:L96: can be expanded to other deployment conditions by extending
+P4:L97: the range of evaluation with respect to attack type, language,
+P4:L98: prompt length and application context.
+P4:L99: It’s a two-layer design that covers two points of failure.
+P4:L100: Inbound screening can filter out suspicious requests from before
+P4:L101: the model is invoked, thus decreasing the number of calls for
+P4:L102: blocked inputs. Selected leakage patterns in responses may
+P4:L103: be picked up on at a second opportunity through outbound
+--- PAGE 5 ---
+P5:L1: TABLE II
+P5:L2: DATASETFILESREPORTED IN THEREPOSITORY
+P5:L3: File / split Rows Benign Malicious Reported role
+P5:L4: train.csv14,317 6,979 7,338 Phase 1 training split
+P5:L5: validation.csv3,068 1,496 1,572 Phase 1 validation split
+P5:L6: test.csv3,069 1,496 1,573 Phase 1 test split
+P5:L7: train_generalization.csv15,500 7,750 7,750 Phase 2 training split
+P5:L8: validation_generalization.csv3,000 1,500 1,500 Phase 2 validation split
+P5:L9: test_generalization.csv3,000 1,500 1,500 Reported generalization benchmark
+P5:L10: train_v3.csv16,224 8,112 8,112 V3 training corpus
+P5:L11: validation_v3.csv1,500 750 750 V3 validation split
+P5:L12: challenge_holdout.csv600 300 300 Challenge holdout
+P5:L13: hard_negatives_expanded.csv300 150 150 Expanded hard-negative set
+P5:L14: hard_negatives_curated.csv300 150 150 Curated hard-negative set
+P5:L15: short_prompt_eval.csv200 100 100 Short-prompt evaluation
+P5:L16: TABLE III
+P5:L17: DETECTIONRESULTSRECOMPUTED FROMREPORTEDCONFUSIONMATRICES
+P5:L18: Dataset (N) Method TN FP FN TP Accuracy Precision Recall / F1
+P5:L19: Generalization (3000) Rule-only,>301500 0 1369 131 54.37% 100.00% 8.73% / 0.1606
+P5:L20: Generalization (3000) Rule-only,>601500 0 1375 125 54.17% 100.00% 8.33% / 0.1538
+P5:L21: Generalization (3000) DistilBERT only 1489 11 27 1473 98.73% 99.26% 98.20% / 0.9873
+P5:L22: Generalization (3000) Hybrid 1489 11 18 1482 99.03% 99.26% 98.80% / 0.9903
+P5:L23: Challenge (600) Rule-only,>30300 0 280 20 53.33% 100.00% 6.67% / 0.1250
+P5:L24: Challenge (600) DistilBERT only 300 0 7 293 98.83% 100.00% 97.67% / 0.9882
+P5:L25: Challenge (600) Hybrid 300 0 5 295 99.17% 100.00% 98.33% / 0.9916
+P5:L26: Hard negatives (300) Rule-only,>30144 6 141 9 51.00% 60.00% 6.00% / 0.1000
+P5:L27: Hard negatives (300) DistilBERT only 133 17 10 140 91.00% 89.17% 93.33% / 0.9121
+P5:L28: Hard negatives (300) Hybrid 137 13 7 143 93.33% 91.67% 95.33% / 0.9346
+P5:L29: inspection. In neither case is the layer complete: in either, the
+P5:L30: classifier can be outmoded, the patterns can be incomplete,
+P5:L31: the attachments can be missing, and the response filters can
+P5:L32: be missing the new or semantically expressed disclosures.
+P5:L33: Therefore, defense in depth is more about risk reduction rather
+P5:L34: than an assurance that attacks cannot be successful.
+P5:L35: A. Streaming and Egress Policy
+P5:L36: Response inspection must occur before sensitive content
+P5:L37: is sent to the client if the system is expected to withhold
+P5:L38: or redact the complete response. The reviewed gateway tests
+P5:L39: support buffering a response, inspecting it, and then emitting
+P5:L40: it as SSE where requested. The security requirement is thus to
+P5:L41: preventuninspectedtoken egress, not necessarily to ban the
+P5:L42: API’s streaming option altogether. This introduces a latency
+P5:L43: and memory trade-off that should be measured under realistic
+P5:L44: response sizes and concurrent loads.
+P5:L45: VIII. LIMITATIONS ANDRESPONSIBLEUSE
+P5:L46: The detector’s measured performance is tied to the evaluated
+P5:L47: datasets and does not imply that every prompt-injection attempt
+P5:L48: will be detected. The rule engine can miss paraphrased attacks,
+P5:L49: the classifier may encounter distribution shift, and head tail
+P5:L50: tokenization can omit relevant material from the middle of
+P5:L51: long inputs. Attachment extraction and OCR quality depend
+P5:L52: on file structure, image resolution, and contrast. Outbound
+P5:L53: filters use configured patterns and heuristics, so they may miss
+P5:L54: unfamiliar secret formats or flag benign lookalikes. The browser
+P5:L55: extension’s behavior depends on the structure of supported
+P5:L56: web interfaces. These components are intended as defense-in-
+P5:L57: depth controls and should be combined with least-privilege tool
+P5:L58: access, secure secret management, monitoring, and appropriate
+P5:L59: incident handling.
+P5:L60: IX. CONCLUSION
+P5:L61: This paper proposed a dual-layer security design for prompt-
+P5:L62: injection defense, which includes neural–heuristic fusion, mul-
+P5:L63: timodal attachment parsing, pre-execution gating and outbound
+P5:L64: leakage prevention. The hybrid detector has 99.03% accuracy,
+P5:L65: 99.26% precision, 98.80% recall and an F1 score of 0.9903 on
+P5:L66: the 3,000 example generalization holdout. It achieves 99.17%
+P5:L67: accuracy and 98.33% recall on the 600-example challenge
+P5:L68: holdout, with no false positives in the 300 benign examples.
+P5:L69: It has an accuracy of 93.33% and a recall of 95.33% on the
+P5:L70: curated hard-negative set of 300 examples, and it flags 13
+P5:L71: benign examples. There are 288 regression tests in 20 modules
+P5:L72: for the implementation. Reported latency is 22.7 ms on CUDA,
+P5:L73: 29.3 ms on Apple MPS, and 84.7 ms on CPU (excluding
+P5:L74: downstream LLM generation); the listed latency for Layer 1
+P5:L75: and Layer 2 stages add up to 26.5 ms, 33.4 ms, and 89.3 ms,
+P5:L76: respectively.
+P5:L77: The results show the usefulness of the neural classifier and
+P5:L78: interpretable rules and a separate response-inspection layer.
+P5:L79: For block paths that are tested, requests are blocked before
+P5:L80: the downstream model is invoked and completed responses
+P5:L81: are checked before delivery. The architecture thus offers
+--- PAGE 6 ---
+P6:L1: TABLE IV
+P6:L2: AUTOMATEDTESTSUITESUMMARY
+P6:L3: Subsystem / test module Tests Coverage described by the repository
+P6:L4: Admin authentication 30 Password hashing, sessions, admin security
+P6:L5: Attachments 34 PDF/DOCX extraction, size limits, attachment gating
+P6:L6: Image OCR attachments 19 Tesseract OCR and image-carried content
+P6:L7: Block-dialog UI 13 Modal behavior and responsive actions
+P6:L8: Detection 14 Layer 1 decisions, threshold behavior, edge cases
+P6:L9: DOCX indirect injection 4 DOCX carrier injection and pre-invocation gating
+P6:L10: Dual-layer integration 6 Layer 1/Layer 2 decision propagation
+P6:L11: Extension interception 15 Browser DOM interception and concurrency locks
+P6:L12: Extension parity 28 Extension/API verdict consistency
+P6:L13: External LLM demo 9 Provider client, failover, model selection
+P6:L14: Integration center 9 Metadata, connection tests, incident filtering
+P6:L15: Layer 2 demo 16 Response inspection and synthetic leak handling
+P6:L16: LLM client 6 Provider routing and local mock
+P6:L17: Model integrity 25 Checkpoint digest validation and fallback behavior
+P6:L18: Open WebUI deployment 8 Reverse-proxy integration checks
+P6:L19: OpenAI gateway integration 12 Chat-completions schema and streaming behavior
+P6:L20: Scenarios A–H 10 End-to-end scenario checks
+P6:L21: Nine-category taxonomy 14 Taxonomy classification and fallback
+P6:L22: UI navigation and themes 7 Navigation and theme behavior
+P6:L23: Web UI integration 9 Routes, dashboard, incident logging
+P6:L24: Total 288 20 listed modules; 288 reported passing tests
+P6:L25: TABLE V
+P6:L26: REPORTEDSECURITY-MIDDLEWARELATENCY BYRUNTIME
+P6:L27: Pipeline stage MPS CUDA CPU
+P6:L28: Preprocessing 1.1 1.0 1.8
+P6:L29: Rule engine 3.2 3.1 3.9
+P6:L30: DistilBERT inference 24.6 18.2 78.4
+P6:L31: Decision gate 0.4 0.4 0.6
+P6:L32: Layer 1 subtotal 29.3 22.7 84.7
+P6:L33: Layer 2 regex / PII 3.8 3.5 4.2
+P6:L34: Layer 2 validation 0.3 0.3 0.4
+P6:L35: Combined listed stages 33.4 26.5 89.3
+P6:L36: Values are in milliseconds. Combined values sum the listed Layer 1 and Layer 2 stages
+P6:L37: and exclude LLM generation and other unmeasured overhead.
+P6:L38: complementary controls at the input and output boundaries of
+P6:L39: LLM applications.
+P6:L40: ACKNOWLEDGMENT
+P6:L41: The authors acknowledge the guidance of Mrs. Usha Anirud-
+P6:L42: hha Jogalekar, Assistant Professor, Department of Computer
+P6:L43: Science & Engineering, Symbiosis Institute of Technology,
+P6:L44: Symbiosis International (Deemed University), Pune, India.
+P6:L45: REFERENCES
+P6:L46: [1] F. Perez and I. Ribeiro, “Ignore previous prompt: Attack techniques for
+P6:L47: language models,” arXiv:2211.09527, 2022.
+P6:L48: [2] K. Greshake, S. Abdelnabi, S. Mishra, C. Endres, T. Holz, and M.
+P6:L49: Fritz, “Not what you’ve signed up for: Compromising real-world LLM-
+P6:L50: integrated applications with indirect prompt injection,” inProc. ACM
+P6:L51: Workshop on Artificial Intelligence and Security, 2023, pp. 79–90, doi:
+P6:L52: 10.1145/3605764.3623985.
+P6:L53: [3] Y . Liu, G. Deng, Y . Li, K. Wang, Z. Wang, X. Wang, T. Zhang, Y . Liu,
+P6:L54: H. Wang, Y . Zheng, L. Y . Zhang, and Y . Liu, “Prompt injection attack
+P6:L55: against LLM-integrated applications,” arXiv:2306.05499, 2023.
+P6:L56: [4] Q. Zhan, Z. Liang, Z. Ying, and D. Kang, “InjecAgent: Benchmarking
+P6:L57: indirect prompt injections in tool-integrated large language model agents,”
+P6:L58: inFindings of the Association for Computational Linguistics: ACL 2024,
+P6:L59: 2024, pp. 10471–10506, doi: 10.18653/v1/2024.findings-acl.624.
+P6:L60: [5] E. Debenedetti, J. Zhang, M. Balunovic, L. Beurer-Kellner, M. Fischer,
+P6:L61: and F. Tram `er, “AgentDojo: A dynamic environment to evaluate prompt
+P6:L62: injection attacks and defenses for LLM agents,” inAdvances in Neural
+P6:L63: Information Processing Systems, vol. 37, 2024.
+P6:L64: [6] G. Kholkar and R. Ahuja, “CAPTURE: Context-aware prompt injection
+P6:L65: testing and robustness enhancement,” inProc. 1st Workshop on LLM
+P6:L66: Security, 2025, pp. 176–188.
+P6:L67: [7] C. Cui, Y . Wu, M. Backes, and Y . Zhang, “Rethinking assessments
+P6:L68: of prompt injection attacks,” inFindings of the Association for
+P6:L69: Computational Linguistics: ACL 2026, 2026, pp. 23773–23799, doi:
+P6:L70: 10.18653/v1/2026.findings-acl.1191.
+P6:L71: [8] K. Zhu, J. Wang, J. Zhou, Z. Wang, H. Chen, Y . Wang, L. Yang,
+P6:L72: W. Ye, Y . Zhang, N. Z. Gong, and X. Xie, “PromptRobust: Towards
+P6:L73: evaluating the robustness of large language models on adversarial
+P6:L74: prompts,” arXiv:2306.04528, 2023.
+P6:L75: [9] V . Sanh, L. Debut, J. Chaumond, and T. Wolf, “DistilBERT, a distilled
+P6:L76: version of BERT: Smaller, faster, cheaper and lighter,” arXiv:1910.01108,
+P6:L77: 2019.
+P6:L78: [10] N. Carliniet al., “Extracting training data from large language models,”
+P6:L79: inProc. 30th USENIX Security Symposium, 2021, pp. 2633–2650.
+P6:L80: [11] C. Autioet al., “Artificial intelligence risk management framework:
+P6:L81: Generative artificial intelligence profile,” NIST AI 600-1, 2024, doi:
+P6:L82: 10.6028/NIST.AI.600-1.
+P6:L83: [12] OW ASP GenAI Security Project, “OW ASP Top 10 for Large Language
+P6:L84: Model Applications and Generative AI 2025,” OW ASP Foundation, 2025.
+P6:L85: [Online]. Available: https://owasp.org/www-project-top-10-for-large-lan
+P6:L86: guage-model-applications/

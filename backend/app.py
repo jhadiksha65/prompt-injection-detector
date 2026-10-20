@@ -620,6 +620,11 @@ def secure_prompt():
         # Trigger Alerts in background thread to prevent network latency from delaying the response
         def _send_alerts_background(r_id, r_score, r_level, a_type, r_reason, p_text):
             try:
+                print(f"\n[SECURITY INCIDENT] Critical Prompt Injection Intercepted! Incident ID: {r_id}")
+                print(f"[SECURITY INCIDENT] Risk Level: {r_level} | Risk Score: {r_score}% | Attack Vector: {a_type}")
+                print(f"[SECURITY INCIDENT] Action Taken: PROMPT_BLOCKED_LLM_NOT_CALLED")
+                print(f"[SECURITY INCIDENT] Reason: {r_reason}")
+                print(f"[SECURITY INCIDENT] Initiating asynchronous SMTP alert dispatch to security admin...")
                 em_status = send_security_email(
                     request_id=r_id,
                     risk_score=r_score,
@@ -773,26 +778,58 @@ def secure_prompt():
     if l2_decision in ["BLOCK", "MASK"]:
         l1_display_status = "BLOCKED (OVERRIDDEN FOR DEMO)" if simulation_override else ("ALLOWED" if l1_decision == "ALLOW" else l1_decision)
         attack_title = "System Leakage / Confidential Disclosure (Simulation)" if simulation_mode else "System Leakage / Confidential Disclosure"
-        email_status = send_security_email(
-            request_id=req_id,
-            risk_score=l2_result["risk_score"],
-            risk_level=l2_result["risk_level"],
-            attack_type=attack_title,
-            action_taken=f"RESPONSE_{l2_decision}",
-            reason=l2_result["reason"],
-            prompt_snippet=prompt_text,
-            layer1_status=l1_display_status,
-            llm_called="YES (SYNTHETIC FIXTURE)" if simulation_mode else "YES",
-            layer2_status=l2_decision,
-            leakage_detected="TRUE",
-            leakage_score=str(l2_result["risk_score"]),
-            final_decision="BLOCKED" if l2_decision == "BLOCK" else "SANITIZED"
-        )
-        sms_status = send_security_sms(
-            request_id=req_id,
-            risk_level=l2_result["risk_level"],
-            attack_type=attack_title
-        )
+        email_status = "QUEUED"
+        sms_status = "QUEUED"
+
+        def _send_l2_alerts_background(r_id, r_score, r_level, a_title, l2_dec, l2_rsn, p_txt, l1_disp):
+            em_status = "QUEUED"
+            sm_status = "QUEUED"
+            try:
+                em_status = send_security_email(
+                    request_id=r_id,
+                    risk_score=r_score,
+                    risk_level=r_level,
+                    attack_type=a_title,
+                    action_taken=f"RESPONSE_{l2_dec}",
+                    reason=l2_rsn,
+                    prompt_snippet=p_txt,
+                    layer1_status=l1_disp,
+                    llm_called="YES (SYNTHETIC FIXTURE)" if simulation_mode else "YES",
+                    layer2_status=l2_dec,
+                    leakage_detected="TRUE",
+                    leakage_score=str(r_score),
+                    final_decision="BLOCKED" if l2_dec == "BLOCK" else "SANITIZED"
+                )
+            except Exception:
+                em_status = "FAILED"
+
+            try:
+                sm_status = send_security_sms(
+                    request_id=r_id,
+                    risk_level=r_level,
+                    attack_type=a_title
+                )
+            except Exception:
+                sm_status = "FAILED"
+
+            try:
+                conn = get_connection()
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE incidents SET alert_status = ?, email_status = ?, sms_status = ? WHERE request_id = ?",
+                    (em_status, em_status, sm_status, r_id)
+                )
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+        import threading
+        threading.Thread(
+            target=_send_l2_alerts_background,
+            args=(req_id, l2_result["risk_score"], l2_result["risk_level"], attack_title, l2_decision, l2_result["reason"], prompt_text, l1_display_status),
+            daemon=True
+        ).start()
 
     # Log Incident
     log_incident(
